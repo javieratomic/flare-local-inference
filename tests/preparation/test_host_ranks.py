@@ -30,22 +30,30 @@ def join(address, rank, world=2, *, identity="same", boot=None, results=None):
             results.append(error)
 
 
-def test_admits_every_peer_rank_with_its_executor_connection():
-    owner, address = rendezvous(4)
+@pytest.mark.parametrize("world", [3, 4])
+def test_admits_every_peer_rank_with_its_executor_connection(world):
+    owner, address = rendezvous(world)
     results = []
-    peers = [threading.Thread(target=join, args=(address, rank, 4), kwargs={"results": results})
-             for rank in (3, 1, 2)]
+    peers = [threading.Thread(target=join, args=(address, rank, world), kwargs={"results": results})
+             for rank in reversed(range(1, world))]
     for peer in peers:
         peer.start()
     topologies = owner.accept(timeout=10)
     for peer in peers:
         peer.join()
-    assert [item["boot_id"] for item in topologies] == ["zero", "peer1", "peer2", "peer3"]
-    assert owner.hosts == ("zero", "peer1", "peer2", "peer3")
+    expected = ("zero", *(f"peer{rank}" for rank in range(1, world)))
+    assert tuple(item["boot_id"] for item in topologies) == expected
+    assert owner.hosts == expected
     assert all(isinstance(result, tuple) for result in results)
     group = host_ranks.HostRankGroup.__new__(host_ranks.HostRankGroup)
     group.rendezvous = owner
-    assert len(group.connections) == len(group.controls) == 3
+    assert len(group.connections) == len(group.controls) == world - 1
+
+
+@pytest.mark.parametrize("world", [0, 1, 17, 2.0, True])
+def test_rendezvous_rejects_rank_counts_that_helios_cannot_load(world):
+    with pytest.raises(ValueError, match="two to sixteen"):
+        HostRendezvous("127.0.0.1:0", world, identity="same", topology=topology("zero"))
 
 
 @pytest.mark.parametrize("arguments, reason", [

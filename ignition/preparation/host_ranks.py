@@ -368,8 +368,10 @@ class HostRendezvous:
 
     def __init__(self, address, world, *, identity, topology, checkpoint_token_file="~/.config/flare/agent.token",
                  checkpoint_ring=None):
-        if world not in (2, 4):
-            raise ValueError("multi-host tensor parallelism requires two or four ranks")
+        # Helios loads multi-host packages of two through sixteen ranks; recipes
+        # declare which of those tensor-parallel sizes they prepare.
+        if type(world) is not int or not 2 <= world <= 16:
+            raise ValueError("multi-host tensor parallelism requires two to sixteen ranks")
         self.address, self.world = parse_address(address), world
         self.identity, self.topology = identity, topology
         self.checkpoint_token_file = checkpoint_token_file
