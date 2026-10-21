@@ -42,9 +42,11 @@ RECIPE = Recipe(
     sampling_defaults=SamplingDefaults(temperature=1., top_p=1., top_k=-1),
     checkpoints=(Checkpoint(alias="deepseek-v4.1-flash", repository="deepseek-ai/DeepSeek-V4.1-Flash-1017",
         revision="1bae0e1088993b9b82de08f59de5be5a34e42170", architecture="DeepseekV41ForCausalLM",
-        stored_bytes=510_286_023_000, device_bytes=306_557_453_640, draft_bytes=7_932_874_632,
-        # Estimate half of backbone scale bytes saved; retain the full draft budget.
-        scale_compressed_device_bytes={"csf": 298_063_988_040}),),
+        # Measured resident bytes with DSpark and its confidence head: loading each component of
+        # TP2 and TP4 ranks on GB10 gives replicated R = 2 * T4 - T2 and total 4 * T4 - 3 * R.
+        # CSF replicates its fixed scale-expansion buffers, so its replicated share bounds both.
+        stored_bytes=510_286_023_000, device_bytes=310_274_189_312, draft_bytes=7_932_874_632,
+        scale_compressed_device_bytes={"csf": 295_683_306_496}, replicated_device_bytes=2_984_102_912),),
     context=1048576, page_tokens=128, concurrency=4, max_concurrency=64, prefill_chunk=4096,
     speculation=Speculation(draft_tokens=5), max_draft_tokens=7, max_images=4, image_bytes=32 << 20,
     # Single-row decode runs the shared expert on an auxiliary stream.
