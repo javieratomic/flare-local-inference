@@ -45,3 +45,40 @@ def test_replicated_kv_partitions_cover_query_rank_groups(world):
         ranges = [TensorParallelShard(rank, world).replicated_partition(heads) for rank in range(world)]
         assert ranges == [(rank // (world // heads), rank // (world // heads) + 1)
                           for rank in range(world)]
+
+
+@pytest.mark.parametrize("world", (1, 2, 4, 8))
+@pytest.mark.parametrize("extent,alignment", [(64 * 512, 8 * 512), (8 * 1024, 1024), (64, 8), (2304, 32)])
+def test_padded_partitions_match_exact_partitions_when_extents_divide(world, extent, alignment):
+    for rank in range(world):
+        shard = TensorParallelShard(rank, world)
+        if extent % (world * alignment):
+            continue
+        assert shard.padded_partition(extent, alignment=alignment) == shard.partition(extent, alignment=alignment)
+        assert shard.padded_width(extent, alignment=alignment) == extent // world
+
+
+@pytest.mark.parametrize("extent,alignment,width", [
+    # DeepSeek V4.1 query heads pad 64 -> 72 by whole eight-head output groups.
+    (64 * 512, 8 * 512, 24 * 512), (64, 8, 24), (8 * 1024, 1024, 3 * 1024),
+    # The vocabulary pads 129280 -> 129408 in 64-row blocks.
+    (129280, 64, 43136),
+    # Already divisible extents keep their exact widths.
+    (2304, 32, 768), (6144, 256, 2048)])
+def test_three_ranks_pad_by_whole_aligned_units(extent, alignment, width):
+    shards = [TensorParallelShard(rank, 3) for rank in range(3)]
+    ranges = [shard.padded_partition(extent, alignment=alignment) for shard in shards]
+    assert ranges == [(rank * width, (rank + 1) * width) for rank in range(3)]
+    assert all(shard.padded_width(extent, alignment=alignment) == width for shard in shards)
+    assert width % alignment == 0 and 0 <= 3 * width - extent < 3 * alignment
+    # Padding never displaces checkpoint positions: every real index keeps its rank-ordered place.
+    covered = [index for first, last in ranges for index in range(first, min(last, extent))]
+    assert covered == list(range(extent))
+
+
+@pytest.mark.parametrize("extent,alignment", [(0, 1), (-8, 1), (8, 0), (8.0, 1), (True, 1), (8, True)])
+def test_invalid_padded_extents_fail(extent, alignment):
+    with pytest.raises(ValueError):
+        TensorParallelShard(0, 3).padded_partition(extent, alignment=alignment)
+    with pytest.raises(ValueError):
+        TensorParallelShard(0, 3).padded_width(extent, alignment=alignment)
