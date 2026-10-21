@@ -80,6 +80,9 @@ class Checkpoint:
     expansion_bytes: int = 0
     # Estimated resident device weights after optional lossless expert-scale compression.
     scale_compressed_device_bytes: Mapping[str, int] = field(default_factory=dict)
+    # The share of the device weights that every tensor-parallel rank holds in full, such as
+    # replicated embeddings, vision encoders and fixed expansion buffers; the rest is sharded.
+    replicated_device_bytes: int = 0
     # Per-rank costs replacing the recipe's `ranks` and `plain_ranks` when this checkpoint's draft or state
     # layout differs, such as a draft model that only this checkpoint carries.
     ranks: Mapping[int, "RankCosts"] | None = None
@@ -245,12 +248,16 @@ class Recipe:
 
     def weights_bytes(self, checkpoint: Checkpoint, world_size: int, speculation: Speculation | None,
                       expert_scale_compression: str | None = None) -> int:
-        """Estimate one rank's device weights from the checkpoint's stored tensors and their expansion."""
+        """Estimate one rank's device weights from the checkpoint's stored tensors and their expansion.
+
+        Replicated bytes count on every rank; the remaining weights divide across ranks.
+        """
         learned = speculation is not None and speculation.learned
         device_bytes = (checkpoint.device_bytes if expert_scale_compression is None else
                         checkpoint.scale_compressed_device_bytes[expert_scale_compression])
-        return -(-(device_bytes + checkpoint.expansion_bytes
-                   - (0 if learned else checkpoint.draft_bytes)) // world_size)
+        replicated = checkpoint.replicated_device_bytes
+        return replicated + -(-(device_bytes + checkpoint.expansion_bytes - replicated
+                                - (0 if learned else checkpoint.draft_bytes)) // world_size)
 
     def live_rows(self, concurrency: int, speculation: Speculation | None) -> int:
         """Permanently backed null, live, and speculative execution rows."""
