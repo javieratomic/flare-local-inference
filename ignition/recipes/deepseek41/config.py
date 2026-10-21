@@ -6,6 +6,37 @@ from pathlib import Path
 
 
 @dataclass(frozen=True)
+class RankGeometry:
+    """Per-rank attention and vocabulary widths shared by every tensor-parallel rank.
+
+    Query heads pad by whole eight-head output groups, so three ranks own three
+    groups each: 72 heads, one group of zero query and output weights. The
+    vocabulary pads to 64-row blocks per rank, 129408 rows for three ranks,
+    and gathered logits drop the padded columns. Divisible rank counts keep
+    the checkpoint's exact partitions.
+    """
+
+    world: int
+
+    def _width(self, extent, alignment):
+        from ignition.components.parallel import TensorParallelShard
+
+        return TensorParallelShard(0, self.world).padded_width(extent, alignment=alignment)
+
+    @property
+    def heads(self):
+        return self._width(64, 8)
+
+    @property
+    def groups(self):
+        return self.heads // 8
+
+    @property
+    def vocabulary(self):
+        return self._width(129280, 64)
+
+
+@dataclass(frozen=True)
 class CacheSource:
     layer: int
     ratio: int

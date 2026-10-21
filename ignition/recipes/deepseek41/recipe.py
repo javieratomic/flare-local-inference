@@ -51,6 +51,9 @@ RECIPE = Recipe(
     speculation=Speculation(draft_tokens=5), max_draft_tokens=7, max_images=4, image_bytes=32 << 20,
     # Single-row decode runs the shared expert on an auxiliary stream.
     stream_overlap=True,
-    ranks=MappingProxyType({4: RankCosts(3_043_840, 113_920, 8 << 30)}),
-    plain_ranks=MappingProxyType({4: RankCosts(2_841_088, 113_920, 8 << 30)}),
+    # Every rank keeps complete continuation rows and cache pages; tensor parallelism splits
+    # only weights and per-head activations. Three ranks run one rank per host and pad
+    # attention to 72 heads and the vocabulary to 129408 rows.
+    ranks=MappingProxyType({world: RankCosts(3_043_840, 113_920, 8 << 30) for world in (3, 4)}),
+    plain_ranks=MappingProxyType({world: RankCosts(2_841_088, 113_920, 8 << 30) for world in (3, 4)}),
 )

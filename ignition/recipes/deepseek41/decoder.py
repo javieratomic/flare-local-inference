@@ -16,6 +16,7 @@ from ignition.components.vocabulary import PreparedVocabularyProjection
 from ignition.preparation.scratch import GraphBufferPool, GraphBuffers
 
 from .attention import AttentionIndices, AttentionScratch, PreparedAttention, PreparedGlobalKV, Rotary, normalize
+from .config import RankGeometry
 from .decoder_prefill import PreparedDecoderSuffix
 from .engram import EngramScratch, PreparedEngram, PreparedTableRequests
 
@@ -68,7 +69,8 @@ class Scratch:
         ffn_hc = MHCScratch.allocate(tokens, 5120, device, buffers=buffers)
         attention = AttentionScratch.allocate(tokens, world, device, buffers=buffers, candidate_tokens=candidate_tokens)
         attention_output, mlp_output = zeros(tokens, 5120), zeros(tokens, 5120)
-        hidden, local_logits, logits = zeros(samples, 5120), zeros(samples, 129280 // world), zeros(samples, 129280)
+        hidden, local_logits, logits = (zeros(samples, 5120), zeros(samples, RankGeometry(world).vocabulary),
+                                        zeros(samples, 129280))
         # Embedding, Engram projection, and feed-forward intermediates execute serially.
         embed, lookup, ffn = buffers.fork(), buffers.fork(), buffers.fork()
         embedding = zeros(tokens, 5120, cursor=embed)

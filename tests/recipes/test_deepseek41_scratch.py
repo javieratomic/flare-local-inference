@@ -76,3 +76,14 @@ def test_oneshot_capacity_excludes_prefills_assigned_to_dma(capacity, dspark, dr
 def test_short_prefill_still_fits_the_oneshot_channel():
     config = PreparationConfig(max_active=1, dspark=False, prefill_chunk_size=64)
     assert config.all_reduce_tokens == 64
+
+
+@pytest.mark.parametrize("world,heads,groups,vocabulary", [(4, 16, 2, 32320), (3, 24, 3, 43136)])
+def test_rank_scratch_holds_whole_padded_head_groups_and_vocabulary(world, heads, groups, vocabulary):
+    scratch = Scratch.allocate(64, 6, world, "cpu", candidate_tokens=16)
+    assert scratch.attention.query.shape == scratch.attention.attended.shape == (64, heads, 512)
+    assert scratch.attention.attended.view(64, groups, 4096).shape == (64, groups, 4096)
+    assert scratch.local_logits.shape == (6, vocabulary) and scratch.logits.shape == (6, 129280)
+    assert vocabulary * world >= 129280 and vocabulary % 64 == 0
+    # Expert intermediates divide exactly: 2304 / 3 = 768 and 2304 / 4 = 576.
+    assert scratch.shared.intermediate.shape[1] == 2304 // world

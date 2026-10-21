@@ -15,17 +15,19 @@ pytestmark = pytest.mark.skipif(os.environ.get("FLARE_RUN_CUDA_TESTS") != "1",
                               reason="requires an explicitly assigned CUDA device")
 
 
+# Four DeepSeek V4.1 ranks own 16 query heads each; three ranks own 24, the last eight padded.
+@pytest.mark.parametrize("heads", [16, 24])
 @pytest.mark.parametrize("ratio", [1, 2])
 @pytest.mark.parametrize("mode", ["decode", "extend"])
 @pytest.mark.parametrize("window_size", [128, 136])
 @pytest.mark.parametrize("rows", [4, 24])
 @torch.no_grad()
-def test_mixed_cache_writers_and_captured_attention(ratio, mode, window_size, rows):
+def test_mixed_cache_writers_and_captured_attention(ratio, mode, window_size, rows, heads):
     device = torch.device("cuda:0")
     torch.manual_seed(4101)
     window_values = torch.randn((window_size, 512), device=device, dtype=torch.bfloat16) * .2
     compressed_values = torch.randn((128 // ratio, 512), device=device, dtype=torch.bfloat16) * .2
-    query = torch.randn((rows, 16, 512), device=device, dtype=torch.bfloat16) * .2
+    query = torch.randn((rows, heads, 512), device=device, dtype=torch.bfloat16) * .2
     # The window is a strided view into a complete continuation row.
     backing = torch.zeros((3, window_size * 528 + 1024), device=device, dtype=torch.uint8)
     window = backing[:, :window_size * 528]
@@ -37,7 +39,10 @@ def test_mixed_cache_writers_and_captured_attention(ratio, mode, window_size, ro
     lengths = torch.tensor([128, 83, 1, 0], dtype=torch.int32, device=device).repeat(rows // 4)
     indexed_lengths = lengths // ratio
     table = torch.ones((rows, 1), device=device, dtype=torch.int32)
-    sink = torch.randn(16, device=device)
+    sink = torch.randn(heads, device=device)
+    # Padded heads have zero query weights and a zero sink logit, as the three-rank loader prepares them.
+    query[:, 16:].zero_()
+    sink[16:].zero_()
     output = torch.empty_like(query)
     metadata = (window_slots, compressed_slots, window_indices, compressed_indices,
                 lengths, indexed_lengths, table)
@@ -83,4 +88,6 @@ def test_mixed_cache_writers_and_captured_attention(ratio, mode, window_size, ro
             extra_indices=compressed_indices + 128 // ratio, extra_topk_lengths=indexed_lengths,
             swa_page_size=window_size, extra_page_size=128 // ratio, cache_format="deepseek_v41")
         torch.testing.assert_close(output.float(), expected.float(), atol=.012, rtol=.08)
+        # Zero output weights cannot cancel non-finite values, including rows with no visible keys.
+        assert torch.isfinite(output).all()
         graph.reset()
