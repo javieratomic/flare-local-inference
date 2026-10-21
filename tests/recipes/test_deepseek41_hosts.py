@@ -71,3 +71,46 @@ def test_remote_channels_cover_vocab_and_sampling_results_without_pcie(monkeypat
         layouts = (PreparedDraftDistribution.broadcast_layout(16),
                    SpeculativeAcceptance.storage_layout(16, draft_tokens + 1))
         assert calls[0]["gather_bytes"] >= max(packed_broadcast_layout(layout.values())[1] for layout in layouts)
+
+
+def test_three_ranks_require_one_host_each():
+    config = bootstrap.PreparationConfig(devices=(0,) * 3, hosts=("victoria", "tiana", "maria"))
+    assert config.devices == (0,) * 3
+    # b12x PCIe vocabulary gathers and DMA reductions do not partition across three ranks.
+    with pytest.raises(ValueError, match="one rank per host"):
+        bootstrap.PreparationConfig(devices=(0, 1, 2))
+    for devices, hosts in (((0,) * 3, ("a", "b")), ((0,) * 2, ("a", "b")), ((0,) * 5, tuple("abcde"))):
+        with pytest.raises(ValueError, match="distinct GPUs"):
+            bootstrap.PreparationConfig(devices=devices, hosts=hosts)
+
+
+@pytest.mark.parametrize("draft_tokens", [0, 5])
+def test_three_host_channels_gather_padded_vocabulary_partitions(monkeypatch, draft_tokens):
+    config = bootstrap.PreparationConfig(devices=(0,) * 3, hosts=("a", "b", "c"), max_active=16,
+        dspark=draft_tokens > 0, speculative_widths=tuple(range(1, draft_tokens + 2)),
+        speculative_token_capacity=128)
+    calls = []
+    monkeypatch.setattr(bootstrap, "create_roce_runtime", lambda group, device, **kwargs: calls.append(kwargs))
+    bootstrap._collective_runtimes(config, None, None, coordinator=SimpleNamespace(spans_hosts=True),
+        package_storage=object(), verification_samples=config.decode_tokens)
+    sample_rows = max(config.decode_tokens, config.request_capacity * draft_tokens)
+    # 129280 vocabulary rows pad to 3 x 43136; each rank gathers its whole padded partition.
+    assert calls[0]["gather_bytes"] >= sample_rows * 43136 * 2
+
+
+def test_three_remote_ranks_receive_the_plan():
+    from ignition.preparation import rank_group
+    from ignition.recipes.declaration import Speculation
+
+    gpus = tuple(planning.Gpu(i, "GB10", f"GPU-{i}", 128 << 30, 120 << 30, (12, 1)) for i in range(3))
+    plan = planning.fit(recipe.RECIPE, recipe.RECIPE.checkpoints[0], gpus, concurrency=4,
+        reserve_bytes=0, speculation=Speculation(draft_tokens=5), expert_scale_compression="csf")
+    calls = []
+    original, rank_group.prepare_group = rank_group.prepare_group, lambda *args, **kwargs: calls.append(args)
+    try:
+        recipe.prepare("checkpoint", plan, compile_forwards=True, kernel_cache=None, progress=None,
+                       package_storage=object(), ranks=SimpleNamespace(hosts=("a", "b", "c")))
+    finally:
+        rank_group.prepare_group = original
+    (_, config, _), = calls
+    assert config.devices == (0,) * 3 and config.hosts == ("a", "b", "c")

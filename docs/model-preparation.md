@@ -224,7 +224,8 @@ use the same prepared model graphs; the flag selects table storage only.
 ## DeepSeek V4.1 Flash
 
 The `deepseek-v4.1-flash` alias selects `deepseek-ai/DeepSeek-V4.1-Flash-1017`
-and supports TP4 text generation, reasoning, DSML tool calls, and images
+and supports TP4, or TP3 with one rank per host, for text generation, reasoning,
+DSML tool calls, and images
 when the checkpoint contains its vision encoder.
 Exports use the native DeepSeek V4.1 prompt encoder and include only the tokenizer
 asset. Vision exports bind the atomic `<｜deepseek_image｜>` token as ID 129264,
@@ -235,7 +236,7 @@ Sampling defaults are temperature 1.0 and top-p 1.0, following the
 Add `--expert-scale-compression csf` to losslessly compress backbone and DSpark
 MXFP4 expert scales during loading. Compressed scales stay resident, with shared
 expansion buffers reused by serial expert layers. Planning conservatively estimates
-3% less resident weight storage; loading measures the actual allocation. Omitting
+4.7% less resident weight storage; loading measures the actual allocation. Omitting
 the flag preserves native scales.
 DSpark is its learned draft method, defaulting to five draft tokens per round
 with separate proposal and verification graphs, using native conditional
@@ -279,6 +280,18 @@ request their weight ranges during preparation. From a paired controller, use
 with a four-node `sparks` cluster. The prepared model uses RoCEnante collectives
 across hosts. See [multi-host preparation and serving](multi-host.md) for
 preparation authentication, orbit setup, and rank placement.
+
+Three DGX Sparks prepare TP3 with `--ranks 3` and two `ignition join` peers.
+Ranks own whole eight-head output groups, so attention pads 64 query heads to
+72 and its eight output groups to nine; the padded group has zero query and
+output weights and adds nothing to the attention output. The vocabulary head
+pads 129280 rows to 3 x 43136, and gathered logits drop the padded columns.
+Expert widths (2304 / 3 = 768) and Engram heads (24 / 3) divide exactly. Each
+rank holds about 93.7 GiB of weights with `--expert-scale-compression csf` and
+DSpark, about 98.1 GiB without compression, leaving roughly 8 GiB of KV pages
+on a Spark with 115 GiB available and a 4 GiB reserve. Single-host TP3 is not
+supported: b12x PCIe vocabulary gathers and DMA reductions do not partition
+across three ranks.
 
 `--image-concurrency` defaults to the smaller of four and `--max-concurrency`.
 For example, add `--max-concurrency 64 --image-concurrency 4` during export to
@@ -622,7 +635,8 @@ memory types despite sharing DRAM; do not dereference a device allocation on
 the CPU or replace system-scope synchronization with volatile accesses. See
 [NVIDIA's Spark CUDA guidance](https://docs.nvidia.com/dgx/dgx-spark-porting-guide/porting/cuda.html).
 
-A model too large for one Spark runs tensor-parallel across two or four Sparks,
+A model too large for one Spark runs tensor-parallel across two or four Sparks
+(three for DeepSeek V4.1 Flash),
 one rank per host, reducing through b12x RoCEnante over their ConnectX-7 ports:
 `ignition export --ranks N --rendezvous ADDR:PORT` on rank zero with
 `ignition join` on each peer writes one package on rank zero, and

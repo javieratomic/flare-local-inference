@@ -329,8 +329,8 @@ def test_deepseek41_native_checkpoint_and_scale_compression(monkeypatch, tmp_pat
 
 
 # Resident weights per rank with DSpark, measured on GB10 by loading each component of one rank.
-_DS41_MEASURED = {(None, 2): 156_545_558_528, (None, 4): 79_681_243_136,
-                  ("csf", 2): 149_333_704_704, ("csf", 4): 76_158_903_808}
+_DS41_MEASURED = {(None, 2): 156_545_558_528, (None, 3): 105_334_392_832, (None, 4): 79_681_243_136,
+                  ("csf", 2): 149_333_704_704, ("csf", 3): 100_589_941_248, ("csf", 4): 76_158_903_808}
 
 
 @pytest.mark.parametrize("compression,world", sorted(_DS41_MEASURED, key=str))
@@ -338,7 +338,8 @@ def test_deepseek41_rank_weights_track_measured_residency(compression, world):
     model = resolve("deepseek-v4.1-flash")
     estimate = model.recipe.weights_bytes(model.checkpoint, world, model.recipe.speculation, compression)
     measured = _DS41_MEASURED[compression, world]
-    # Replicated embedding, vision and expansion buffers do not divide across ranks.
+    # Replicated embedding, vision and expansion buffers do not divide; three ranks add only
+    # their padded head group and vocabulary rows (under 0.1 GiB).
     assert abs(estimate - measured) <= 1 << 27, (estimate - measured) / (1 << 30)
     unreplicated = -(-(model.checkpoint.scale_compressed_device_bytes.get(compression,
                                                                           model.checkpoint.device_bytes)) // world)
