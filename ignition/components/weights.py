@@ -424,6 +424,28 @@ class DirectWeightLoader:
         self._session.flush()
         return targets
 
+    def load_padded_tensor(self, name: str, rows: tuple[int, int], *, fill: float = 0.,
+                           dtype: torch.dtype | None = None) -> torch.Tensor:
+        """Transfer leading-axis rows that may extend past the checkpoint, filling the tail.
+
+        Rows beyond the checkpoint hold `fill`, a value the recipe chooses so that
+        padded rows leave its result unchanged.
+        """
+        import torch
+        from ignition.preparation.tensor_metadata import record_numeric_tensor
+
+        self._require_open()
+        source = self._sources[name]
+        first, last = _padded_range(rows, source.shape[0], 1)
+        stored = max(0, min(last, source.shape[0]) - first)
+        target = torch.full((last - first, *source.shape[1:]), fill,
+                            dtype=source.dtype if dtype is None else dtype, device=self.device)
+        record_numeric_tensor(target)
+        if stored:
+            self._copy(target[:stored], source[first:first + stored])
+        self._session.flush()
+        return target
+
     def _queue_tensor(self, name, *, dtype=None, extent=None):
         import torch
 
@@ -1029,6 +1051,19 @@ def _sm103_fp4_experts(w13, s13, w2, s2, scale_vectors, *, format, activation_mo
     if activation_mode == "a16":
         return prepare_cute_w4a16_experts(w13, s13, w2, s2, *scale_vectors[:2], swiglu_limit=swiglu_limit)
     raise ValueError(f"SM103 routed experts do not support activation mode {activation_mode!r}")
+
+
+def _padded_range(selected, extent, alignment):
+    """Validate an aligned range that may extend past a checkpoint axis into padding.
+
+    Checkpoint positions must end on an aligned boundary so that no alignment
+    unit, such as a quantization block, mixes checkpoint values with padding.
+    """
+    start, end = (0, extent) if selected is None else selected
+    if (type(start) is not int or type(end) is not int or not 0 <= start < end
+            or start % alignment or end % alignment or min(end, extent) % alignment and start < extent):
+        raise ValueError("padded weight partition must be aligned and nonempty")
+    return start, end
 
 
 def _aligned_range(selected, extent, alignment):
