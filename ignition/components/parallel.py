@@ -20,6 +20,29 @@ class TensorParallelShard:
         width = extent // self.world_size
         return self.rank * width, (self.rank + 1) * width
 
+    def padded_width(self, extent: int, *, alignment: int = 1) -> int:
+        """Return each rank's width after padding the axis to whole aligned units per rank.
+
+        Ranks keep identical shapes, so compiled forwards and rank zero's kernel
+        selections remain valid on every rank. The width equals `partition`'s
+        when the extent already divides into aligned rank partitions.
+        """
+        if (type(extent) is not int or extent <= 0 or type(alignment) is not int or alignment <= 0):
+            raise ValueError("padded tensor extent and alignment must be positive integers")
+        units = -(-extent // (self.world_size * alignment))
+        return units * alignment
+
+    def padded_partition(self, extent: int, *, alignment: int = 1) -> tuple[int, int]:
+        """Partition an axis padded to equal aligned rank widths.
+
+        The range may extend past `extent`. Loaders fill the positions beyond the
+        checkpoint with values that leave the model's result unchanged, so a
+        padded alignment unit, such as an attention head group, is never split
+        between checkpoint data and padding unless the extent itself does so.
+        """
+        width = self.padded_width(extent, alignment=alignment)
+        return self.rank * width, (self.rank + 1) * width
+
     def fused_partitions(self, extents: tuple[int, ...], *, alignment: int = 1) -> tuple[tuple[int, int], ...]:
         """Slice each independently partitioned projection inside a fused axis."""
         offset, ranges = 0, []
