@@ -1069,6 +1069,35 @@ impl Staged {
         Ok(())
     }
 
+    /// Stream the GPU ids `pages` and the row in `slot` into a new record file,
+    /// as `store` does for the record's pages of a published checkpoint.
+    pub(crate) fn store_pages(
+        &mut self,
+        id: super::JobId,
+        header: Header,
+        temporary: PathBuf,
+        path: PathBuf,
+        pages: Vec<PageId>,
+        slot: StateSlotId,
+    ) -> Result<()> {
+        self.accept(id)?;
+        if self.resources.pool.is_none() {
+            return Err(invalid(
+                "the staged transport has no staging pool; records move only through caller-owned buffers",
+            ));
+        }
+        if pages.len() != header.tail_pages as usize {
+            return Err(invalid(format!(
+                "record {} holds {} tail pages; {} GPU pages were supplied",
+                record::file_name(&header.key),
+                header.tail_pages,
+                pages.len()
+            )));
+        }
+        self.start_outbound(id, header, temporary, path, Source::Device { pages, slot });
+        Ok(())
+    }
+
     fn accept(&self, id: JobId) -> Result<()> {
         if self.closed {
             return Err(invalid("the staged transport is closed"));
@@ -1215,12 +1244,6 @@ impl DiskTransport for Staged {
         path: PathBuf,
         checkpoint: &PublishedCheckpoint,
     ) -> Result<()> {
-        self.accept(id)?;
-        if self.resources.pool.is_none() {
-            return Err(invalid(
-                "the staged transport has no staging pool; records move only through caller-owned buffers",
-            ));
-        }
         let tail = header.tail_pages as usize;
         let chain = checkpoint.chain_pages.len();
         if tail > chain {
@@ -1229,12 +1252,14 @@ impl DiskTransport for Staged {
                 record::file_name(&header.key)
             )));
         }
-        let source = Source::Device {
-            pages: checkpoint.chain_pages[chain - tail..].to_vec(),
-            slot: checkpoint.slot,
-        };
-        self.start_outbound(id, header, temporary, path, source);
-        Ok(())
+        self.store_pages(
+            id,
+            header,
+            temporary,
+            path,
+            checkpoint.chain_pages[chain - tail..].to_vec(),
+            checkpoint.slot,
+        )
     }
 
     fn fetch(

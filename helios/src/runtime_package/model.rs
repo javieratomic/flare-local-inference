@@ -744,8 +744,9 @@ impl NativeModel {
             manifest.buffers.iter().find(|buffer| buffer.name == name)
                 .map(|buffer| buffer.nbytes as u64)
         })?;
+        let shard = self.cluster.as_ref().map(|cluster| (cluster.rank, cluster.world));
         let prepared = crate::offload::prepare_with_inputs(
-            &options.prefix_cache, root, identity, geometry, contexts, staging,
+            &options.prefix_cache, root, identity, geometry, contexts, staging, shard,
         )?;
         let summary = prepared.summary();
         self.offload = prepared.into_shared();
@@ -864,6 +865,11 @@ impl NativeModel {
     /// This file's rank of a multi-host model, or None when every rank is local.
     pub fn cluster(&self) -> Option<&ClusterRank> {
         self.cluster.as_ref()
+    }
+
+    /// The host prefix store this process prepared, before the model worker opens it.
+    pub fn offload(&self) -> Option<&crate::offload::Shared> {
+        self.offload.as_deref()
     }
 
     /// The RoCE transport local rank `rank` launches, if any.

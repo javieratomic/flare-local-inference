@@ -689,6 +689,44 @@ semantic identity. Existing packages use these paths without re-export.
 Per-image graph capacities and live feature storage stay fixed; total image
 tokens across a conversation are bounded by context rather than one window.
 
+### 2.14 Ranks on separate hosts
+
+When a multi-host package's ranks run as separate processes, no process can
+copy another host's GPU memory, so each host keeps the records of its own rank
+in its own record directory. A file holds one rank's planes and row in the
+ordinary record format, so every host's files of one record have the same name
+and length. The layout fingerprint covers that rank's geometry, its rank, and
+the world size, so a host never restores records another rank wrote.
+
+Rank zero's `DiskStore` indexes, sizes, evicts, and plans every record as on a
+single host, with the disk limit applying to each host's directory. Its
+transport, `shard::Sharded`, runs every store, fetch, truncate, and unlink on
+rank zero's `Staged` transport and sends the same job, with the same file names,
+GPU ids, and state slot, to each peer over a dedicated TCP connection. Each peer
+runs the job on its own `Staged` transport and reports its completion. Rank
+zero reports a job only after every rank finished it, so a fetch completes only
+once every rank's GPU holds its pages and row, and a checkpoint stays pinned
+until every rank has copied it out. When some ranks wrote a record and another
+failed, rank zero unlinks the file from the ranks that wrote it before
+reporting the failure, so no host keeps a record the index lacks.
+
+The ranks join their stores after connecting their RoCE transport and before
+the execution protocol starts. Every rank must have a disk store, or none:
+startup fails when the settings differ. Each peer connects to a listener rank
+zero opens on the address of its rendezvous connection and presents a nonce
+rank zero sent over that connection. Peers then send rank zero a summary of the
+records their scan kept. Rank zero keeps a record only when every rank holds a
+file with the same header, ignoring the layout fingerprint and row checksum,
+keeps its row only when every rank holds the row, and drops records whose
+parent it drops. Every rank deletes or truncates its files to that agreement
+before rank zero builds its index.
+
+A memory tier keeps every rank's bytes in one process, so a multi-host package
+supports disk-only retention; startup rejects a nonzero
+`--prefix-cache-memory`. A peer's record service holds its staging pool and
+transfer threads until rank zero closes its store after draining every rank,
+or until rank zero's connection ends.
+
 ## 3. Implementation sequence
 
 Each step is independently testable and leaves the build green. Steps 1
@@ -929,6 +967,10 @@ A correctness failure in any scenario blocks performance claims.
   transfers, so total shutdown time can exceed one drain deadline.
 - `bytes_out` counts every memory copy that landed, including copies the disk
   limit then refused; `stored` counts only records that reached disk.
+- Ranks on separate hosts retain records on disk only; their memory tier is
+  not supported. A store that one rank fails and the others complete is
+  removed from the others before the failure is reported; that path has unit
+  coverage of its bookkeeping but no fault-injection test on hardware.
 
 ## 6. Deferred
 
