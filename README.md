@@ -2,35 +2,56 @@
   <img src="docs/images/flare-logo.png" alt="Flare — ASCII wordmark above a solar flare" width="912">
 </p>
 
-> **About this fork.** This is a community fork of
-> [NVIDIA/flare-local-inference](https://github.com/NVIDIA/flare-local-inference). It is not
-> an official NVIDIA release. It adds tensor-parallel preparation of DeepSeek V4.1 Flash on
-> **three** DGX Sparks (TP3, one rank per host), for clusters of three Sparks cabled in a
-> triangle. Upstream supports TP4 only. This branch (`spark-tp3`) is current upstream `main`
-> plus the five TP3 commits of
-> [`tp3-deepseek41`](https://github.com/javieratomic/flare-local-inference/tree/tp3-deepseek41),
-> which is proposed upstream and may never be accepted there. It also carries one fork-only
-> commit that aligns the Helios RoCE proxy with the locked FlashInfer (proxy ABI 10). Without
-> it, no multi-host package exported on current upstream `main` can serve (upstream issue #7).
-> The five TP3 commits add:
-> - padded tensor-parallel partitions and loaders: query heads 64 -> 72 (zero weights), and
->   vocabulary 129280 -> 3 x 43136;
-> - host rendezvous for 2 to 16 ranks;
-> - corrected per-rank weight estimates for replicated weights.
->
-> To prepare the model, follow the "DeepSeek V4.1 Flash" section of
-> [docs/model-preparation.md](docs/model-preparation.md) with `--ranks 3`. To serve it, follow
-> [docs/multi-host.md](docs/multi-host.md). On DGX OS, preparation needs `python3.12-dev` and
-> `liburing-dev` (b12x.loader builds a native extension) and the system CPython 3.12;
-> standalone Python builds without `os.memfd_create` fail on the peer ranks.
->
-> **Measured on 3x GB10.** Results with CSF and DSpark, using RoCE over direct 200G links:
-> - decode: 39.8 tok/s with one stream; 84.4 tok/s aggregate with four;
-> - cold prefill: 262k in 83 s, 523k in 195 s;
-> - 16/16 recall at 262k (output identical to vLLM TP3) and at 1.04M tokens (575 s).
->
-> Each rank holds about 93.6 GiB of weights and keeps about 7.7 GiB for KV.
-> Use at your own risk; for anything else, refer to upstream.
+## About this fork
+
+This is a community fork of
+[NVIDIA/flare-local-inference](https://github.com/NVIDIA/flare-local-inference), not an
+official NVIDIA release. It targets three DGX Sparks cabled in a triangle with direct 200G
+RoCE links, one rank per host. The default branch (`spark-tp3`) is current upstream `main`
+plus the changes below. Use it at your own risk; for anything else, refer to upstream.
+
+### What this fork adds over upstream
+
+| Change | Upstream `main` | This fork | Upstream status |
+|---|---|---|---|
+| DeepSeek V4.1 Flash on three hosts (TP3) | TP4 only; host rendezvous admits 2 or 4 ranks | TP3, one rank per host: query heads padded 64 -> 72 with zero weights, vocabulary 129280 -> 3 x 43136, rendezvous for 2 to 16 ranks | Proposed in [#21](https://github.com/NVIDIA/flare-local-inference/issues/21) ([`tp3-deepseek41`](https://github.com/javieratomic/flare-local-inference/tree/tp3-deepseek41)) |
+| Per-rank weight estimate | Divides replicated weights by the rank count (TP4 plans 71.4 GiB, measures 74.2 GiB) | Counts embeddings, vision encoder and other replicated weights on every rank | Part of #21 |
+| Multi-host RoCE proxy | Packages exported on current `main` cannot serve on several hosts ("proxy ABI 10, this runtime provides 9", [#7](https://github.com/NVIDIA/flare-local-inference/issues/7)) | Helios proxy aligned with the locked FlashInfer (ABI 10) | Fork-only; tracked by #7 |
+| Prefix cache on disk across hosts | Refused: "the host prefix store requires every rank in one process" | Each host keeps its own rank's records on its NVMe; rank zero indexes and evicts, every rank runs each job; records survive restarts | Proposed in [#23](https://github.com/NVIDIA/flare-local-inference/issues/23) ([`prefix-cache-multihost-upstream`](https://github.com/javieratomic/flare-local-inference/tree/prefix-cache-multihost-upstream)) |
+| `flare orbit run --prefix-cache-*` | Accepted but not forwarded to the ranks, so silently ignored | Forwarded to every rank | Part of #23 |
+
+### Measured on 3x GB10 (DeepSeek V4.1 Flash, TP3, CSF, DSpark)
+
+- Decode: 39.8 tok/s with one stream, 84.4 tok/s aggregate with four.
+- Each rank holds about 93.6 GiB of weights and keeps about 7.7 GiB for KV.
+- With `--prefix-cache-memory 0 --prefix-cache-disk DIR --prefix-cache-disk-limit 200G`, the
+  "from disk" column restarts all three ranks first, so the prefix comes only from each
+  host's NVMe:
+
+| Prompt tokens | Cold prefill | From disk after restart |
+|---|---|---|
+| 65k | 21.5 s | 2.0 s |
+| 262k | 87.1 s | 2.4 s |
+| 1.04M | 581.9 s | 4.1 s |
+
+- Answers to 16-key recall prompts were 16/16 and byte-identical across cold, cached and
+  disk runs.
+- The 262k and 1M answers match a vLLM TP3 deployment of the same checkpoint on the same
+  hosts.
+- A 1M-token prompt takes about 1.1 GB of disk per host.
+
+### Using it
+
+To prepare the model, follow the "DeepSeek V4.1 Flash" section of
+[docs/model-preparation.md](docs/model-preparation.md) with `--ranks 3`. To serve it, follow
+[docs/multi-host.md](docs/multi-host.md), adding the `--prefix-cache-*` options above to
+`flare orbit run` to keep the prefix cache on disk. On DGX OS, preparation needs
+`python3.12-dev` and `liburing-dev` (b12x.loader builds a native extension) and the system
+CPython 3.12; standalone Python builds without `os.memfd_create` fail on the peer ranks.
+[docs/prefix-cache-offload.md](docs/prefix-cache-offload.md#214-ranks-on-separate-hosts)
+describes the multi-host prefix store.
+
+---
 
 > **Coding agents:** skip this README and read [AGENTS.md](AGENTS.md) directly.
 
