@@ -356,7 +356,7 @@ impl ModelRuntime {
             .name("flare-model".into())
             .spawn(move || {
                 if matches!(peers, Some(crate::execution::RankPeers::Processes(_)))
-                    && manifest.offload.is_some()
+                    && manifest.offload.as_ref().is_some_and(|binding| !binding.sharded())
                 {
                     let error = Error::execution(
                         ExecutionError::Manifest,

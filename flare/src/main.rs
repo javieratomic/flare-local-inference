@@ -296,7 +296,8 @@ fn serve_peer(
     roce_ring: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let mut manifest = owner.manifests()?.remove(0);
-    let joined = cluster::peer(&owner, cluster, stream, &progress, roce_ring)?;
+    let mut joined = cluster::peer(&owner, cluster, stream, &progress, roce_ring)?;
+    let records = joined.records.take();
     manifest.collectives = Some(cluster::health(&joined.transport));
     progress.finish_animation();
     eprintln!(
@@ -309,6 +310,7 @@ fn serve_peer(
         flare_helios::execution::serve_rank(manifest, joined.streams, cluster.rank, cluster.world)
     };
     if !shutdown.drained {
+        std::mem::forget(records);
         std::mem::forget(joined.transport);
         std::mem::forget(owner);
         return Err(match shutdown.error {
@@ -316,6 +318,13 @@ fn serve_peer(
             None => "native replay did not drain".into(),
         }
         .into());
+    }
+    // Rank zero closes its store after every rank drained; the service's transfers use this
+    // rank's context and registered staging, which the package owner releases.
+    if let Some(records) = records
+        && let Err(error) = records.join()
+    {
+        eprintln!("Host prefix record service: {error}");
     }
     // The proxy stops before the package releases the region it posts from.
     drop(joined.transport);
