@@ -290,6 +290,13 @@ The example binds all interfaces on Maxwell:
 curl -fsS http://maxwell:8000/health
 ```
 
+`--prefix-cache-disk DIR --prefix-cache-disk-limit SIZE --prefix-cache-memory 0`
+keep published prefix checkpoints on every host's disk: each rank writes its
+own share of a record under `DIR` on its host, rank zero decides what to keep
+and evict, and the limit applies to each host. Every rank receives the same
+settings; a memory tier is not supported across hosts. See
+[prefix cache offload](prefix-cache-offload.md#214-ranks-on-separate-hosts).
+
 A printed URL or successful `--detach` means rank processes started; wait for
 a successful health response before sending inference requests. The default
 HTTP bind is `127.0.0.1` on rank zero, so remote clients need an appropriate
