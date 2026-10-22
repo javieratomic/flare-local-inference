@@ -26,6 +26,8 @@ pub struct RoceTransport;
 pub struct Joined<S> {
     pub streams: S,
     pub transport: Arc<RoceTransport>,
+    /// A peer's host prefix record service, which rank zero drives until it closes its store.
+    pub records: Option<flare_helios::offload::shard::Service>,
 }
 
 /// The check every completed frame passes: a failed transport poisons the rank.
@@ -168,9 +170,15 @@ pub fn rank_zero(
         transport.connect(&records)?;
         rendezvous::await_connected(&mut streams)?;
         phase.finish(connected(&transport));
+        let phase = progress.phase("Join host prefix stores", None);
+        match flare_helios::offload::shard::join_rank_zero(owner.offload(), &mut streams)? {
+            Some(summary) => phase.finish(summary),
+            None => phase.finish("none"),
+        }
         Ok(Joined {
             streams,
             transport: Arc::new(transport),
+            records: None,
         })
     }
     #[cfg(not(all(target_os = "linux", target_arch = "aarch64")))]
@@ -205,9 +213,22 @@ pub fn peer(
         transport.connect(&records)?;
         rendezvous::report_connected(&mut stream)?;
         phase.finish(connected(&transport));
+        let phase = progress.phase("Join host prefix stores", None);
+        let records = flare_helios::offload::shard::join_peer(
+            owner.offload(),
+            &mut stream,
+            cluster.rank,
+            cluster.world,
+        )?;
+        phase.finish(if records.is_some() {
+            "serving rank zero"
+        } else {
+            "none"
+        });
         Ok(Joined {
             streams: stream,
             transport: Arc::new(transport),
+            records,
         })
     }
     #[cfg(not(all(target_os = "linux", target_arch = "aarch64")))]
