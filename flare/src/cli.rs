@@ -745,6 +745,27 @@ impl ServingOptions {
         if self.embedding_table_resident_scales {
             options.push("--embedding-table-resident-scales".into());
         }
+        // Every rank keeps its own records under its host's directory; rank zero's store drives
+        // all of them, so every rank needs the same settings.
+        if let Some(bytes) = self.prefix_cache_memory {
+            options.extend(["--prefix-cache-memory".into(), bytes.to_string()]);
+        }
+        if let Some(directory) = &self.prefix_cache_disk {
+            options.extend(["--prefix-cache-disk".into(), directory.display().to_string()]);
+        }
+        if let Some(bytes) = self.prefix_cache_disk_limit {
+            options.extend(["--prefix-cache-disk-limit".into(), bytes.to_string()]);
+        }
+        if let Some(transport) = self.prefix_cache_disk_transport {
+            options.extend([
+                "--prefix-cache-disk-transport".into(),
+                match transport {
+                    Transport::Staged => "staged",
+                    Transport::Direct => "direct",
+                }
+                .into(),
+            ]);
+        }
         options
     }
 
@@ -1258,6 +1279,44 @@ mod tests {
             args.rank_options(),
             ["--embedding-table-cache-size", "1073741824"]
         );
+    }
+
+    #[test]
+    fn prefix_cache_settings_reach_every_rank() {
+        let args = run(&[
+            "flare",
+            "run",
+            "model.safetensors",
+            "--prefix-cache-memory",
+            "0",
+            "--prefix-cache-disk",
+            "/var/cache/flare",
+            "--prefix-cache-disk-limit",
+            "100G",
+            "--prefix-cache-disk-transport",
+            "staged",
+        ]);
+        let options = args.rank_options();
+        assert_eq!(
+            options,
+            [
+                "--prefix-cache-memory",
+                "0",
+                "--prefix-cache-disk",
+                "/var/cache/flare",
+                "--prefix-cache-disk-limit",
+                "107374182400",
+                "--prefix-cache-disk-transport",
+                "staged",
+            ]
+        );
+        let mut forwarded = vec!["flare", "run", "model.safetensors"];
+        forwarded.extend(options.iter().map(String::as_str));
+        assert_eq!(
+            run(&forwarded).load_options().prefix_cache,
+            args.load_options().prefix_cache
+        );
+        assert!(run(&["flare", "run", "model.safetensors"]).rank_options().is_empty());
     }
 
     #[test]
