@@ -89,6 +89,10 @@ def test_multi_host_ranks_parse_for_rank_zero_and_its_peers():
     assert (rank_zero.model, rank_zero.ranks, rank_zero.rendezvous) == ("glm-5.3-flash", 4, "10.0.0.1:29600")
     peer = _parser().parse_args(["join", "10.0.0.1:29600", "--rank", "3", "--ranks", "4"])
     assert (peer.rendezvous, peer.rank, peer.ranks, peer.gpu) == ("10.0.0.1:29600", 3, 4, 0)
+    assert peer.local_checkpoint is None
+    for flags, mode in ((["--local-checkpoint"], "require"), (["--local-checkpoint", "prefer"], "prefer")):
+        peer = _parser().parse_args(["join", "10.0.0.1:29600", "--rank", "1", "--ranks", "3", *flags])
+        assert peer.local_checkpoint == mode
 
 
 def test_runtime_memory_flags_do_not_select_preparation_or_diagnostic_behavior(capsys):

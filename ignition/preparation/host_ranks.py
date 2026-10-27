@@ -588,9 +588,13 @@ def knock(address, rank, world, *, identity, topology, timeout=600.0, report=Non
 
 def serve_peer(control, executor, rank, world, *, hub_cache, progress=None, export_staging=None,
                package_cache=None,
-               checkpoint_token_file="~/.config/flare/agent.token", identity=None):
+               checkpoint_token_file="~/.config/flare/agent.token", identity=None, local_checkpoint=None):
     """Prepare one peer from owned checkpoint metadata and requested source ranges, report
     memory, and serve until coordinated drain.
+
+    `local_checkpoint` ("require" or "prefer") reads tensor ranges from this host's copy of rank
+    zero's snapshot: the same hub-cache revision, or the same absolute directory. "require" fails
+    unless every tensor file matches rank zero's; "prefer" requests mismatched files from rank zero.
 
     Any failure exits the process; rank zero then ends the group.
     """
@@ -618,9 +622,26 @@ def serve_peer(control, executor, rank, world, *, hub_cache, progress=None, expo
         if not (isinstance(command, tuple) and command[0] == "checkpoint-source"):
             raise RuntimeError(f"rank zero sent {command!r} before its checkpoint")
         _, checkpoint = command
+        local = None
+        if local_checkpoint is not None:
+            from ignition.recipes import snapshot_directory
+
+            local = snapshot_directory(hub_cache, checkpoint)
+            if not local.is_dir():
+                if local_checkpoint == "require":
+                    raise ValueError(f"--local-checkpoint: this host has no snapshot {local}")
+                if progress is not None:
+                    progress(f"local checkpoint: no snapshot {local}; all ranges come from rank zero")
+                local = None
         source = RemoteSource(control, token(checkpoint_token_file), rank,
                               source_identity() if identity is None else identity, checkpoint,
-                              directory=export_staging, on_created=owned_sources.append, fabric=fabric)
+                              directory=export_staging, on_created=owned_sources.append, fabric=fabric,
+                              local=local, require_local=local_checkpoint == "require")
+        if local is not None and progress is not None:
+            tensors = len(source.local) + len(source.local_refused)
+            progress(f"local checkpoint: {len(source.local)} of {tensors} tensor files from {local}")
+            for name, reason in sorted(source.local_refused.items()):
+                progress(f"local checkpoint: {name} comes from rank zero: {reason}")
         source_scope = source.activate()
         snapshot = source_scope.__enter__()
         assignment = receive_object(control)
@@ -651,7 +672,9 @@ def serve_peer(control, executor, rank, world, *, hub_cache, progress=None, expo
         model.memory_report["checkpoint_source"] = source.report()
         if progress is not None:
             report = source.report()
-            progress(f"received {source.stats['payload_bytes'] / (1 << 30):.2f} GiB of checkpoint ranges "
+            received = source.stats["payload_bytes"] + report.get("local_bytes", 0)
+            local_share = f" ({report['local_bytes'] / (1 << 30):.2f} GiB local)" if "local_bytes" in report else ""
+            progress(f"received {received / (1 << 30):.2f} GiB of checkpoint ranges{local_share} "
                      f"via {report['transport']} ({source.streams} streams, "
                      f"{report['payload_seconds']:.2f}s, {report['payload_gbps']:.2f} Gbit/s)")
         model.manifest()

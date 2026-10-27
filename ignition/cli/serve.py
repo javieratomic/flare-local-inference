@@ -581,5 +581,6 @@ def join(args) -> int:
     serve_peer(control, executor, args.rank, args.ranks, hub_cache=hub_cache, progress=progress,
                export_staging=configuration.directory("export_staging"), identity=identity,
                package_cache=configuration.directory("package_cache"),
-               checkpoint_token_file=configuration.get("preparation.checkpoint_token_file").value)
+               checkpoint_token_file=configuration.get("preparation.checkpoint_token_file").value,
+               local_checkpoint=args.local_checkpoint)
     return 0

@@ -87,6 +87,13 @@ def _parser() -> argparse.ArgumentParser:
     joining.add_argument("--rank", type=int, required=True, metavar="R", help="this host's rank, 1 through N-1")
     joining.add_argument("--ranks", type=int, required=True, choices=range(2, 17), metavar="N", help="tensor-parallel ranks")
     joining.add_argument("--gpu", type=int, default=0, metavar="INDEX", help="this host's GPU (default: 0)")
+    joining.add_argument("--local-checkpoint", choices=("require", "prefer"), nargs="?", const="require",
+                         metavar="MODE",
+                         help="read checkpoint ranges from this host's copy of rank zero's snapshot instead of"
+                              " from rank zero. Tensor files must match rank zero's size and safetensors header."
+                              " MODE: require fails the join on any mismatch; prefer requests mismatched or"
+                              " missing files from rank zero. With no MODE, selects require"
+                              " (default: every range comes from rank zero)")
     keys = command("keygen", publishing.keygen, "create an encrypted production signing key and public profile")
     keys.add_argument("--directory", required=True, type=Path, help="new private directory; must not exist")
     keys.add_argument("--name", required=True, help="publisher display name")

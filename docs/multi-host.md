@@ -309,6 +309,18 @@ On failure, sibling connections are aborted and workers are joined; incomplete
 files are never published. Export manifests and cache requests use the
 rendezvous connection.
 
+A peer that already holds the checkpoint can read its ranges from its own copy
+with `ignition join ... --local-checkpoint [MODE]`: the same revision in its hub
+cache, or the same absolute directory rank zero loads. Admission still receives
+rank zero's catalog and metadata. Each local safetensors file must have rank
+zero's size and header digest; payload bytes beyond the header are trusted to be
+the same revision and are not hashed. Other files always come from rank zero.
+`require`, the default MODE, fails the join on any missing or different tensor
+file; `prefer` requests those files from rank zero and reads the rest locally.
+Local reads run at least eight bounded reads at a time, release their page cache like
+rank zero's, and are reported apart from the authenticated bytes rank zero
+serves. Without the flag, every range comes from rank zero.
+
 Prefetch retains at most one 4 MiB payload per stream plus bounded transport
 buffers. The native weight loader copies data in order, preserving packed rows,
 strides, and conversions. Peers retain metadata and one reusable 4 MiB
