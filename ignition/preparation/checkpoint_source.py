@@ -473,13 +473,18 @@ class RemoteSource:
         release_read_pages(held.descriptor, offset, extent)
         data = b"".join(raw[index * stride:index * stride + width] for index in range(rows))
         field = "payload_bytes" if offset >= entry["header_bytes"] else "metadata_bytes"
+        self.count_local(started, **{field: len(data)})
+        return data
+
+    def count_local(self, started, *, payload_bytes=0, metadata_bytes=0, requests=1):
+        """Account local reads, including those a loading session issues directly."""
         with self.stats_lock:
-            self.local_stats[field] += len(data)
-            self.local_stats["requests"] += 1
-            if field == "payload_bytes":
+            self.local_stats["payload_bytes"] += payload_bytes
+            self.local_stats["metadata_bytes"] += metadata_bytes
+            self.local_stats["requests"] += requests
+            if payload_bytes:
                 self.read_started = started if self.read_started is None else min(self.read_started, started)
                 self.read_finished = time.monotonic()
-        return data
 
     @contextmanager
     def activate(self):

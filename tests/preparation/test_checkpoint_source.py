@@ -298,7 +298,7 @@ def test_adapter_preserves_packed_rows_and_cpu_pointer_records(tmp_path, streams
         manifest = inspect_indexed_checkpoint(client.snapshot)
         adapter = RemoteWeightSession.__new__(RemoteWeightSession)
         adapter.source, adapter.checkpoint = client, manifest
-        adapter.names = ("weights.safetensors",)
+        adapter.names, adapter.direct = ("weights.safetensors",), {}
         path = tmp_path / "bounded-buffer"
         adapter.buffer_write = os.open(path, os.O_RDWR | os.O_CREAT, 0o600)
         adapter.buffer_read = os.open(path, os.O_RDONLY)
@@ -629,3 +629,54 @@ def test_local_file_change_after_admission_aborts_its_read(tmp_path):
         path.write_bytes(b"replaced")
         with pytest.raises(RuntimeError, match="changed"):
             client.read("weights.safetensors", start, 1)
+
+
+def test_local_records_reach_the_native_reader_in_one_batch_on_a_direct_descriptor(tmp_path):
+    from ignition.preparation import remote_weights
+    from ignition.preparation.remote_weights import RemoteWeightSession
+
+    with connected(tmp_path, local=peer_copy(), require_local=True) as (client, server, start):
+        held = client.local["weights.safetensors"]
+        adapter = RemoteWeightSession.__new__(RemoteWeightSession)
+        adapter.source, adapter.names = client, ("weights.safetensors",)
+        descriptor = os.open(held.path, os.O_RDONLY | os.O_DIRECT | os.O_CLOEXEC)
+        adapter.direct = {0: (held, descriptor)}
+        observed = []
+        def execute(self, records):
+            observed.append(list(records))
+        try:
+            with mock.patch("b12x.loader._checkpoint.DirectWeightSession._execute", execute), \
+                    mock.patch.object(remote_weights, "BLOCK_BYTES", 8):
+                adapter._execute(array("Q", (0, start + 1, 2, 1000, 0, 4, 8, 4,
+                                               0, 9000, 4, 2000, 2, 1, 0, 0,
+                                               0, start + 64, 4096, 1 << 30, 1, 1, 0, 0)))
+            # Local rows keep their geometry, including spans wider than a bounded remote request.
+            assert observed[0] == [descriptor, start + 1, 2, 1000, 0, 4, 8, 4,
+                                   descriptor, start + 64, 4096, 1 << 30, 1, 1, 0, 0]
+            assert observed[1] == [0, 9000, 4, 2000, 2, 1, 0, 0]
+            assert client.local_stats["payload_bytes"] == 8 + 4096
+            assert client.stats["payload_bytes"] == server.stats["payload_bytes"] == 0
+            held.path.unlink()
+            held.path.write_bytes(b"replaced")
+            with pytest.raises(RuntimeError, match="changed"), \
+                    mock.patch("b12x.loader._checkpoint.DirectWeightSession._execute", execute):
+                adapter._execute(array("Q", (0, start, 2, 1000, 0, 1, 0, 0)))
+        finally:
+            os.close(descriptor)
+
+
+@pytest.mark.skipif(os.environ.get("FLARE_RUN_CUDA_TESTS") != "1",
+                    reason="requires FLARE_RUN_CUDA_TESTS=1 and an explicitly assigned CUDA device")
+def test_local_checkpoint_rows_load_through_the_native_reader(tmp_path):
+    import torch
+    from ignition.preparation.remote_weights import RemoteWeightSession
+
+    with connected(tmp_path, local=peer_copy(), require_local=True) as (client, _, start), client.activate():
+        manifest = inspect_indexed_checkpoint(client.snapshot)
+        destination = torch.zeros(16, dtype=torch.uint8, device="cuda")
+        with RemoteWeightSession(client, manifest, device=torch.cuda.current_device()) as session:
+            session._execute(array("Q", (0, start + 1, 2, destination.data_ptr(), 0, 4, 8, 2,
+                                           0, start + 32, 8, destination.data_ptr() + 8, 0, 1, 0, 0)))
+            torch.cuda.synchronize()
+        assert destination.cpu().tolist() == [1, 2, 9, 10, 17, 18, 25, 26, *b"unreques"]
+        assert client.local_stats["payload_bytes"] == 16
