@@ -1038,7 +1038,7 @@ impl PublishPayload {
     }
 
     fn digest(&self) -> Result<PayloadId, crate::Error> {
-        hash_reader(self.reader(), self.nbytes())
+        self.source.digest()
     }
 }
 

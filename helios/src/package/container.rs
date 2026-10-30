@@ -38,6 +38,13 @@ pub const MAX_HEADER: u64 = 128 << 20;
 pub const MAX_TENSORS: usize = 1 << 20;
 /// Bounded streaming buffer for payload copies and digests.
 pub const IO_CHUNK: usize = 1 << 20;
+/// Block size the digest readers fetch ahead of the hasher.
+const DIGEST_BLOCK: usize = 8 << 20;
+/// Positional readers feeding one digest. A single synchronous reader leaves the hasher waiting
+/// on storage for about half of each block, and SHA-256 on one core outpaces one reader.
+const DIGEST_READERS: usize = 4;
+/// Blocks each digest reader may hold, bounding one digest's buffers to 64 MiB.
+const DIGEST_LANE_BLOCKS: usize = 2;
 /// Maximum bytes in one relative package path.
 pub const MAX_PATH: usize = 1024;
 
@@ -183,6 +190,9 @@ impl Slice {
         &self,
         progress: Option<&crate::package::progress::AcquisitionProgress>,
     ) -> Result<PayloadId> {
+        if self.length >= (DIGEST_READERS * DIGEST_BLOCK) as u64 {
+            return self.digest_read_ahead(progress);
+        }
         let mut context = digest::Context::new(&digest::SHA256);
         let mut buffer = vec![0u8; IO_CHUNK];
         let mut offset = 0;
@@ -196,6 +206,62 @@ impl Slice {
             offset += count as u64;
         }
         Ok(PayloadId::from_digest(context.finish()))
+    }
+    /// Hashes blocks in order while `DIGEST_READERS` threads read ahead: block `b` comes from
+    /// reader `b % DIGEST_READERS`, so each reader's channel already yields its blocks in order.
+    /// When hashing stops early, dropping the channels ends the readers before the scope joins.
+    fn digest_read_ahead(
+        &self,
+        progress: Option<&crate::package::progress::AcquisitionProgress>,
+    ) -> Result<PayloadId> {
+        use std::sync::mpsc::sync_channel;
+        let block = DIGEST_BLOCK as u64;
+        let blocks = self.length.div_ceil(block);
+        std::thread::scope(|scope| {
+            let mut lanes = Vec::with_capacity(DIGEST_READERS);
+            for first in 0..DIGEST_READERS as u64 {
+                let (fill, filled) = sync_channel::<Result<(Vec<u8>, usize)>>(DIGEST_LANE_BLOCKS);
+                let (recycle, spare) = sync_channel::<Vec<u8>>(DIGEST_LANE_BLOCKS);
+                for _ in 0..DIGEST_LANE_BLOCKS {
+                    recycle
+                        .send(vec![0u8; DIGEST_BLOCK])
+                        .expect("digest lane has room");
+                }
+                std::thread::Builder::new()
+                    .name("payload-digest".into())
+                    .spawn_scoped(scope, move || {
+                        let mut index = first;
+                        while index < blocks {
+                            let Ok(mut buffer) = spare.recv() else { return };
+                            let offset = index * block;
+                            let count = (self.length - offset).min(block) as usize;
+                            let read = self
+                                .read_at(offset, &mut buffer[..count])
+                                .map(|()| (buffer, count));
+                            let failed = read.is_err();
+                            if fill.send(read).is_err() || failed {
+                                return;
+                            }
+                            index += DIGEST_READERS as u64;
+                        }
+                    })
+                    .map_err(|e| io("spawn payload digest reader", e))?;
+                lanes.push((filled, recycle));
+            }
+            let mut context = digest::Context::new(&digest::SHA256);
+            for index in 0..blocks {
+                let (filled, recycle) = &lanes[(index % DIGEST_READERS as u64) as usize];
+                let (buffer, count) = filled
+                    .recv()
+                    .map_err(|_| invalid("payload digest reader stopped"))??;
+                context.update(&buffer[..count]);
+                if let Some(progress) = progress {
+                    progress.record_verification_bytes(count as u64);
+                }
+                let _ = recycle.send(buffer);
+            }
+            Ok(PayloadId::from_digest(context.finish()))
+        })
     }
 }
 
@@ -1205,6 +1271,38 @@ mod tests {
             slice.digest().unwrap().as_bytes(),
             digest::digest(&digest::SHA256, &payload).as_ref()
         );
+    }
+
+    #[test]
+    fn read_ahead_digest_matches_one_pass_hash() {
+        let scratch = Scratch::new("read-ahead");
+        // Past the read-ahead threshold, with a partial last block and a nonzero slice offset.
+        let length = DIGEST_READERS * DIGEST_BLOCK + DIGEST_BLOCK / 2 + 4099;
+        let payload: Vec<u8> = (0..length as u64)
+            .map(|value| (value * 2654435761 >> 13) as u8)
+            .collect();
+        let (_, container) = container_with(&scratch, "large.safetensors", &payload);
+        let slice = container.tensor(COMPANION_TENSOR).unwrap();
+        assert!(slice.offset() > 0);
+        assert_eq!(
+            slice.digest().unwrap().as_bytes(),
+            digest::digest(&digest::SHA256, &payload).as_ref()
+        );
+    }
+
+    #[test]
+    fn read_ahead_digest_reports_a_short_file() {
+        let scratch = Scratch::new("read-ahead-short");
+        let length = DIGEST_READERS * DIGEST_BLOCK + 1;
+        let (path, container) = container_with(&scratch, "short.safetensors", &vec![3u8; length]);
+        let slice = container.tensor(COMPANION_TENSOR).unwrap();
+        fs::OpenOptions::new()
+            .write(true)
+            .open(&path)
+            .unwrap()
+            .set_len(slice.offset() + DIGEST_BLOCK as u64)
+            .unwrap();
+        assert!(slice.digest().is_err());
     }
 
     #[test]
