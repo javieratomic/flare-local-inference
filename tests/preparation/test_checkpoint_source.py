@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 import queue
+import shutil
 import socket
 import struct
 import threading
@@ -34,9 +35,11 @@ def checkpoint(directory):
 
 
 @contextmanager
-def connected(tmp_path, streams=1):
+def connected(tmp_path, streams=1, *, second_shard=False, local=None, require_local=False):
     original = tmp_path / "original"
     offset = checkpoint(original)
+    if second_shard:
+        shutil.copyfile(original / "weights.safetensors", original / "second.safetensors")
     description = SimpleNamespace(repository=str(original), revision="immutable")
     root = transport.RootSource(original, description)
     sender, receiver = socket.socketpair()
@@ -47,7 +50,9 @@ def connected(tmp_path, streams=1):
     client = None
     channels = []
     try:
-        client = transport.RemoteSource(receiver, b"k" * 32, 1, "code", description, directory=tmp_path)
+        client = transport.RemoteSource(receiver, b"k" * 32, 1, "code", description, directory=tmp_path,
+                                        local=None if local is None else local(original),
+                                        require_local=require_local)
         server.wait_ready()
         if streams > 1:
             client.control_stats = dict(client.stats)
@@ -293,7 +298,7 @@ def test_adapter_preserves_packed_rows_and_cpu_pointer_records(tmp_path, streams
         manifest = inspect_indexed_checkpoint(client.snapshot)
         adapter = RemoteWeightSession.__new__(RemoteWeightSession)
         adapter.source, adapter.checkpoint = client, manifest
-        adapter.names = ("weights.safetensors",)
+        adapter.names, adapter.direct = ("weights.safetensors",), {}
         path = tmp_path / "bounded-buffer"
         adapter.buffer_write = os.open(path, os.O_RDWR | os.O_CREAT, 0o600)
         adapter.buffer_read = os.open(path, os.O_RDONLY)
@@ -531,3 +536,147 @@ def test_peer_export_keeps_the_remote_owner_for_cleanup(tmp_path, monkeypatch, f
         with path.open("rb") as stream:
             stream.seek(offset)
             assert stream.read(size) == b"synthetic weights"
+
+
+def peer_copy(change=None):
+    """A peer's own snapshot of rank zero's checkpoint, optionally altered before admission."""
+    def copy(original):
+        directory = original.parent / "peer"
+        shutil.copytree(original, directory, ignore=shutil.ignore_patterns("*.json"))
+        (directory / "__pycache__").mkdir()
+        if change is not None:
+            change(directory)
+        return directory
+    return copy
+
+
+def test_local_checkpoint_reads_selected_rows_without_rank_zero_payload(tmp_path):
+    with connected(tmp_path, local=peer_copy(), require_local=True) as (client, server, start):
+        assert list(client.local) == ["weights.safetensors"] and client.streams == transport.LOCAL_STREAMS
+        assert client.read("weights.safetensors", start + 1, 2, 4, 8) == bytes((1, 2, 9, 10, 17, 18, 25, 26))
+        assert client.stats["payload_bytes"] == server.stats["payload_bytes"] == 0
+        assert client.local_stats["payload_bytes"] == 8
+        report = client.report()
+        assert (report["transport"], report["local_bytes"], report["local_files"], report["remote_files"]) == \
+            ("local", 8, 1, 0)
+        assert not list(client.snapshot.rglob("*.safetensors"))
+    assert not client.local
+
+
+def test_default_source_reports_no_local_fields(tmp_path):
+    with connected(tmp_path) as (client, _, start):
+        client.read("weights.safetensors", start, 4)
+        assert not client.local and "local_bytes" not in client.report()
+        assert client.report()["transport"] == "rendezvous-tcp"
+
+
+def _missing(directory):
+    (directory / "weights.safetensors").unlink()
+
+
+def _grown(directory):
+    with (directory / "weights.safetensors").open("ab") as stream:
+        stream.write(b"!")
+
+
+def _header(directory):
+    with (directory / "weights.safetensors").open("r+b") as stream:
+        stream.seek(12)
+        stream.write(b"#")
+
+
+@pytest.mark.parametrize("change,reason", [(_missing, "No such file"), (_grown, "size"), (_header, "header")])
+def test_required_local_checkpoint_refuses_a_different_tensor_file(tmp_path, change, reason):
+    with pytest.raises(ValueError, match=reason):
+        with connected(tmp_path, local=peer_copy(change), require_local=True):
+            pass
+    assert not list(tmp_path.glob("flare-checkpoint-*"))
+
+
+@pytest.mark.parametrize("change", [_missing, _grown, _header])
+def test_preferred_local_checkpoint_streams_refused_files_from_rank_zero(tmp_path, change):
+    with connected(tmp_path, second_shard=True, local=peer_copy(change)) as (client, server, start):
+        assert list(client.local) == ["second.safetensors"]
+        assert list(client.local_refused) == ["weights.safetensors"]
+        assert client.read("weights.safetensors", start, 4) == bytes(range(4))
+        assert client.read("second.safetensors", start, 4) == bytes(range(4))
+        assert server.stats["payload_bytes"] == client.stats["payload_bytes"] == 4
+        assert client.local_stats["payload_bytes"] == 4
+        report = client.report()
+        assert (report["transport"], report["local_files"], report["remote_files"]) == \
+            ("local+rendezvous-tcp", 1, 1)
+
+
+def test_hybrid_prefetch_serializes_the_single_rank_zero_channel(tmp_path):
+    from contextlib import closing
+    from ignition.preparation.remote_weights import RemoteWeightSession
+
+    with connected(tmp_path, second_shard=True, local=peer_copy(_header)) as (client, server, start):
+        adapter = RemoteWeightSession.__new__(RemoteWeightSession)
+        adapter.source = client
+        names = ("weights.safetensors", "second.safetensors")
+        requests = (((names[index % 2], start + index, 1, 1, 0), index) for index in range(32))
+        with closing(adapter._prefetch(requests)) as received:
+            assert list(received) == [(index, bytes([index])) for index in range(32)]
+        assert server.stats["payload_bytes"] == client.stats["payload_bytes"] == 16
+        assert client.local_stats["payload_bytes"] == 16
+
+
+def test_local_file_change_after_admission_aborts_its_read(tmp_path):
+    with connected(tmp_path, local=peer_copy(), require_local=True) as (client, _, start):
+        path = client.local["weights.safetensors"].path
+        path.unlink()
+        path.write_bytes(b"replaced")
+        with pytest.raises(RuntimeError, match="changed"):
+            client.read("weights.safetensors", start, 1)
+
+
+def test_local_records_reach_the_native_reader_in_one_batch_on_a_direct_descriptor(tmp_path):
+    from ignition.preparation import remote_weights
+    from ignition.preparation.remote_weights import RemoteWeightSession
+
+    with connected(tmp_path, local=peer_copy(), require_local=True) as (client, server, start):
+        held = client.local["weights.safetensors"]
+        adapter = RemoteWeightSession.__new__(RemoteWeightSession)
+        adapter.source, adapter.names = client, ("weights.safetensors",)
+        descriptor = os.open(held.path, os.O_RDONLY | os.O_DIRECT | os.O_CLOEXEC)
+        adapter.direct = {0: (held, descriptor)}
+        observed = []
+        def execute(self, records):
+            observed.append(list(records))
+        try:
+            with mock.patch("b12x.loader._checkpoint.DirectWeightSession._execute", execute), \
+                    mock.patch.object(remote_weights, "BLOCK_BYTES", 8):
+                adapter._execute(array("Q", (0, start + 1, 2, 1000, 0, 4, 8, 4,
+                                               0, 9000, 4, 2000, 2, 1, 0, 0,
+                                               0, start + 64, 4096, 1 << 30, 1, 1, 0, 0)))
+            # Local rows keep their geometry, including spans wider than a bounded remote request.
+            assert observed[0] == [descriptor, start + 1, 2, 1000, 0, 4, 8, 4,
+                                   descriptor, start + 64, 4096, 1 << 30, 1, 1, 0, 0]
+            assert observed[1] == [0, 9000, 4, 2000, 2, 1, 0, 0]
+            assert client.local_stats["payload_bytes"] == 8 + 4096
+            assert client.stats["payload_bytes"] == server.stats["payload_bytes"] == 0
+            held.path.unlink()
+            held.path.write_bytes(b"replaced")
+            with pytest.raises(RuntimeError, match="changed"), \
+                    mock.patch("b12x.loader._checkpoint.DirectWeightSession._execute", execute):
+                adapter._execute(array("Q", (0, start, 2, 1000, 0, 1, 0, 0)))
+        finally:
+            os.close(descriptor)
+
+
+@pytest.mark.skipif(os.environ.get("FLARE_RUN_CUDA_TESTS") != "1",
+                    reason="requires FLARE_RUN_CUDA_TESTS=1 and an explicitly assigned CUDA device")
+def test_local_checkpoint_rows_load_through_the_native_reader(tmp_path):
+    import torch
+    from ignition.preparation.remote_weights import RemoteWeightSession
+
+    with connected(tmp_path, local=peer_copy(), require_local=True) as (client, _, start), client.activate():
+        manifest = inspect_indexed_checkpoint(client.snapshot)
+        destination = torch.zeros(16, dtype=torch.uint8, device="cuda")
+        with RemoteWeightSession(client, manifest, device=torch.cuda.current_device()) as session:
+            session._execute(array("Q", (0, start + 1, 2, destination.data_ptr(), 0, 4, 8, 2,
+                                           0, start + 32, 8, destination.data_ptr() + 8, 0, 1, 0, 0)))
+            torch.cuda.synchronize()
+        assert destination.cpu().tolist() == [1, 2, 9, 10, 17, 18, 25, 26, *b"unreques"]
+        assert client.local_stats["payload_bytes"] == 16

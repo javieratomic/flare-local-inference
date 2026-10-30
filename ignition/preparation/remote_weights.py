@@ -5,10 +5,11 @@ from collections import deque
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import closing
 import os
+import time
 
 from b12x.loader._checkpoint import DirectWeightSession, TensorRange
 
-from .checkpoint_source import BLOCK_BYTES, row_extent, tensor_dtype
+from .checkpoint_source import BLOCK_BYTES, LOCAL_STREAMS, file_identity, row_extent, tensor_dtype
 
 
 def chunks(offset, width, rows, source_stride, destination, destination_stride, expand):
@@ -60,19 +61,33 @@ class RemoteWeightSession(DirectWeightSession):
 
     Source IDs identify authenticated remote files, never local descriptors. Only
     received bounded buffers have a memory-backed descriptor, private to this session.
+    Tensor files the source admitted from this host's own copy are instead read by b12x's
+    native reader in whole batches, as rank zero reads its files, through direct
+    descriptors private to this session.
     """
 
     def __init__(self, source, manifest, *, device):
-        super().__init__(device=device, io_threads=1, read_mode="bounce")
+        super().__init__(device=device, io_threads=LOCAL_STREAMS if source.local else 1, read_mode="bounce")
         self.source, self.checkpoint = source, manifest
         self.names = tuple(source.name(manifest.snapshot / shard.path) for shard in manifest.shards)
         self.ids = {name: index for index, name in enumerate(self.names)}
         self.shards = {name: shard.path for name, shard in zip(self.names, manifest.shards, strict=True)}
+        self.direct = {}
         self.buffer_write = os.memfd_create("flare-checkpoint-read", os.MFD_CLOEXEC)
         try:
+            for identifier, name in enumerate(self.names):
+                held = source.local.get(name)
+                if held is None:
+                    continue
+                descriptor = os.open(held.path, os.O_RDONLY | os.O_DIRECT | os.O_CLOEXEC)
+                self.direct[identifier] = (held, descriptor)
+                if file_identity(descriptor) != held.identity:
+                    raise RuntimeError("checkpoint source changed after admission")
             # Keep b12x's bounded bounce reader without writing every network block to NVMe.
             self.buffer_read = os.open(f"/proc/self/fd/{self.buffer_write}", os.O_RDONLY | os.O_DIRECT | os.O_CLOEXEC)
         except BaseException:
+            for _, descriptor in self.direct.values():
+                os.close(descriptor)
             os.close(self.buffer_write)
             super()._close()
             raise
@@ -139,6 +154,8 @@ class RemoteWeightSession(DirectWeightSession):
                     break
                 if destinations_overlap(previous, following):
                     raise ValueError("overlapping checkpoint destinations require an explicit dependency")
+        if self.direct:
+            records = self._execute_direct(records)
         def requests():
             for index in range(0, len(records), 8):
                 identifier, offset, width, pointer, transform, rows, source_stride, destination_stride = records[index:index + 8]
@@ -167,6 +184,40 @@ class RemoteWeightSession(DirectWeightSession):
                     written += size
                 # The synchronous native reader owns all destination and buffer access until it returns.
                 super()._execute(record)
+
+    def _execute_direct(self, records):
+        """Read this host's admitted tensor files natively in one batch; return the remaining records."""
+        direct, remaining, held_files = array("Q"), array("Q"), {}
+        payload = metadata = requests = 0
+        for index in range(0, len(records), 8):
+            record = records[index:index + 8]
+            identifier, offset, width, _, transform, rows = record[:6]
+            if transform == 2 or identifier not in self.direct:
+                remaining.extend(record)
+                continue
+            held, descriptor = self.direct[identifier]
+            held_files[descriptor] = held
+            record[0] = descriptor
+            direct.extend(record)
+            requests += 1
+            if offset >= self.source.files[self.names[identifier]]["header_bytes"]:
+                payload += width * rows
+            else:
+                metadata += width * rows
+        if direct:
+            started = time.monotonic()
+            self._validate_direct(held_files)
+            super()._execute(direct)
+            self._validate_direct(held_files)
+            self.source.count_local(started, payload_bytes=payload, metadata_bytes=metadata, requests=requests)
+        return remaining
+
+    @staticmethod
+    def _validate_direct(held_files):
+        for descriptor, held in held_files.items():
+            held.validate()
+            if file_identity(descriptor) != held.identity:
+                raise RuntimeError("checkpoint source changed after admission")
 
     def _prefetch(self, requests):
         """Hold at most one bounded read per channel; native destination writes stay serial."""
@@ -210,5 +261,7 @@ class RemoteWeightSession(DirectWeightSession):
         try:
             super()._close()
         finally:
+            while self.direct:
+                os.close(self.direct.popitem()[1][1])
             os.close(self.buffer_read)
             os.close(self.buffer_write)

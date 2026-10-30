@@ -1,6 +1,6 @@
 """Serve immutable checkpoint ranges while peer ranks retain only metadata."""
 
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from contextvars import ContextVar
 from dataclasses import dataclass
 import hashlib
@@ -20,6 +20,8 @@ import time
 
 BLOCK_BYTES = 4 << 20
 METADATA_BYTES = 256 << 20
+# Concurrent bounded reads a peer issues against its own copy of the checkpoint.
+LOCAL_STREAMS = 8
 MARKER = ".flare-remote-source.json"
 _OWNER = ContextVar("flare_checkpoint_source", default=None)
 
@@ -310,9 +312,19 @@ class SourceServer:
 
 
 class RemoteSource:
-    """A scoped source directory containing real metadata and no tensor files."""
+    """A scoped source directory containing real metadata and no tensor files.
 
-    def __init__(self, connection, key, rank, identity, checkpoint, *, directory=None, on_created=None, fabric=None):
+    With `local`, a peer that holds the same checkpoint snapshot reads tensor ranges from that
+    directory instead of from rank zero. A local tensor file is admitted only with rank zero's
+    size and safetensors header digest, so it has the same tensor layout; payload bytes beyond
+    the header are trusted to be the same revision and are not hashed. With `require_local`,
+    any tensor file that fails admission fails the join; otherwise that file's ranges are still
+    requested from rank zero. Local reads bypass the authenticated channels and are counted
+    apart from the bytes rank zero serves, so completion accounting is unchanged.
+    """
+
+    def __init__(self, connection, key, rank, identity, checkpoint, *, directory=None, on_created=None, fabric=None,
+                 local=None, require_local=False):
         self.channel, digest = authenticate(connection, key, rank=rank, identity=identity)
         admission, payload = self.channel.receive("catalog")
         if hashlib.sha256(payload).hexdigest() != digest:
@@ -350,6 +362,11 @@ class RemoteSource:
         self.fabric_connections = []
         self.channel_stats = []
         self.stats_lock = threading.Lock()
+        # Serializes requests on the single rendezvous channel when local reads add concurrency.
+        self.control_lock = threading.Lock()
+        self.local = {}
+        self.local_refused = {}
+        self.local_stats = dict(payload_bytes=0, metadata_bytes=0, requests=0)
         self.streams = 1
         self.read_started = self.read_finished = None
         self.finished = False
@@ -370,6 +387,8 @@ class RemoteSource:
                     target.write_bytes(content)
             if admission.get("transport") is not None:
                 self._connect_fabric(fabric, admission["transport"], key, rank, identity, digest)
+            if local is not None:
+                self._open_local(Path(local), require_local)
             self.channel.send("ready")
             self.channel.receive("ready")
         except BaseException:
@@ -401,6 +420,72 @@ class RemoteSource:
             self.channel_stats.append((channel, stats))
             self.channels.put((channel, stats))
 
+    def _open_local(self, directory, required):
+        """Hold this host's copy of each tensor file that matches rank zero's catalog entry.
+
+        Whole files (configs, code, caches such as __pycache__) already came over the control
+        channel, so only safetensors payloads are read from the local copy.
+        """
+        for name, entry in self.files.items():
+            if entry["header_bytes"] is None:
+                continue
+            try:
+                self.local[name] = self._admit_local(directory / name, entry)
+            except (OSError, ValueError) as error:
+                if required:
+                    raise ValueError(f"local checkpoint file {name} cannot replace rank zero's: {error}") from error
+                self.local_refused[name] = str(error)
+        if self.local:
+            self.streams = max(self.streams, LOCAL_STREAMS)
+
+    @staticmethod
+    def _admit_local(path, entry):
+        descriptor = os.open(path, os.O_RDONLY | os.O_CLOEXEC)
+        try:
+            held = HeldFile(path, descriptor, file_identity(descriptor))
+            if held.identity[2] != entry["bytes"]:
+                raise ValueError("its size differs from rank zero's")
+            # As on rank zero: selective reads must not leave read-ahead in the shared DRAM.
+            os.posix_fadvise(descriptor, 0, 0, os.POSIX_FADV_RANDOM)
+            extent, digest = entry["header_bytes"], hashlib.sha256()
+            for offset in range(0, extent, BLOCK_BYTES):
+                data = os.pread(descriptor, min(BLOCK_BYTES, extent - offset), offset)
+                if len(data) != min(BLOCK_BYTES, extent - offset):
+                    raise ValueError("its header read was truncated")
+                digest.update(data)
+            if digest.hexdigest() != entry["sha256"]:
+                raise ValueError("its safetensors header differs from rank zero's")
+            held.validate()
+            release_read_pages(descriptor)
+            return held
+        except BaseException:
+            os.close(descriptor)
+            raise
+
+    def _read_local(self, held, entry, offset, width, rows, stride):
+        extent = row_extent(held.identity[2], offset, width, rows, stride)
+        started = time.monotonic()
+        held.validate()
+        raw = os.pread(held.descriptor, extent, offset)
+        if len(raw) != extent:
+            raise ValueError("local checkpoint read was truncated")
+        held.validate()
+        release_read_pages(held.descriptor, offset, extent)
+        data = b"".join(raw[index * stride:index * stride + width] for index in range(rows))
+        field = "payload_bytes" if offset >= entry["header_bytes"] else "metadata_bytes"
+        self.count_local(started, **{field: len(data)})
+        return data
+
+    def count_local(self, started, *, payload_bytes=0, metadata_bytes=0, requests=1):
+        """Account local reads, including those a loading session issues directly."""
+        with self.stats_lock:
+            self.local_stats["payload_bytes"] += payload_bytes
+            self.local_stats["metadata_bytes"] += metadata_bytes
+            self.local_stats["requests"] += requests
+            if payload_bytes:
+                self.read_started = started if self.read_started is None else min(self.read_started, started)
+                self.read_finished = time.monotonic()
+
     @contextmanager
     def activate(self):
         value = _OWNER.set(self)
@@ -416,12 +501,15 @@ class RemoteSource:
         if self.finished:
             raise RuntimeError("checkpoint reader has already drained")
         entry = self.files[relative_name(name)]
+        if name in self.local:
+            return self._read_local(self.local[name], entry, offset, width, rows, stride)
         row_extent(entry["bytes"], offset, width, rows, stride)
         channel, stats = self.channels.get() if self.channels is not None else (self.channel, self.control_stats)
         started = time.monotonic()
         try:
-            channel.send("read", read=dict(name=name, offset=offset, width=width, rows=rows, stride=stride))
-            _, data = channel.receive("data")
+            with self.control_lock if self.channels is None else nullcontext():
+                channel.send("read", read=dict(name=name, offset=offset, width=width, rows=rows, stride=stride))
+                _, data = channel.receive("data")
             if len(data) != width * rows:
                 raise ConnectionError("checkpoint source returned a different byte extent")
             field = ("payload_bytes" if entry["header_bytes"] is not None and offset >= entry["header_bytes"]
@@ -460,9 +548,15 @@ class RemoteSource:
 
     def report(self):
         seconds = 0 if self.read_started is None else self.read_finished - self.read_started
-        return dict(self.stats, transport="fabric-tcp" if self.channels is not None else "rendezvous-tcp",
-                    streams=self.streams, payload_seconds=seconds,
-                    payload_gbps=self.stats["payload_bytes"] * 8 / seconds / 1e9 if seconds else 0)
+        transport = "fabric-tcp" if self.channels is not None else "rendezvous-tcp"
+        payload = self.stats["payload_bytes"] + self.local_stats["payload_bytes"]
+        report = dict(self.stats, transport=transport, streams=self.streams, payload_seconds=seconds,
+                      payload_gbps=payload * 8 / seconds / 1e9 if seconds else 0)
+        if self.local:
+            report.update(transport="local" if not self.local_refused else f"local+{transport}",
+                          local_bytes=self.local_stats["payload_bytes"], local_files=len(self.local),
+                          remote_files=len(self.local_refused))
+        return report
 
     def abort_reads(self):
         """Wake all concurrent reads before their owners release transfer buffers."""
@@ -477,6 +571,10 @@ class RemoteSource:
     def close(self):
         while getattr(self, "fabric_connections", []):
             self.fabric_connections.pop().close()
+        while getattr(self, "local", None):
+            _, held = self.local.popitem()
+            release_read_pages(held.descriptor)
+            os.close(held.descriptor)
         self.temporary.cleanup()
 
 
