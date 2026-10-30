@@ -4,6 +4,27 @@
 
 > **Coding agents:** skip this README and read [AGENTS.md](AGENTS.md) directly.
 
+## About this branch
+
+This `integration` branch is upstream `main` plus the changes below, proposed
+upstream in four pull requests and one issue, none merged yet. They speed up
+multi-host model preparation, and were measured with DeepSeek V4.1 Flash on DGX
+Spark (GB10) hosts. Measurements are from TP3 exports on three hosts, one run
+per configuration. Each row is measured against the build it was developed on,
+not always upstream `main`; the linked item gives the exact baseline.
+
+| Change | Upstream | Phase | Before | After |
+|---|---|---|---|---|
+| `ignition join --local-checkpoint [require\|prefer]`: peers read their own copy of the checkpoint | [#126](https://github.com/NVIDIA/spark-local-inference/issues/126) (issue) | Load weights on the peers | 252 s | 44.7–50.1 s (per peer) |
+| `--compile-headroom SIZE` / `[preparation] compile_headroom`: host memory left free for compilers (default stays 8 GiB) | [#122](https://github.com/NVIDIA/spark-local-inference/pull/122) | Compile model forwards | 905.7 s | 507.7 s (6 GiB) |
+| Link received payload objects into the package cache instead of copying | [#125](https://github.com/NVIDIA/spark-local-inference/pull/125) | Receive rank export payloads | 457.8 s | 280.6 s |
+| Hash Engram planes on parallel readers | [#157](https://github.com/NVIDIA/spark-local-inference/pull/157) | Assemble package payloads | 262.0 s | 169.1 s |
+| Hash package payload sources, and resolve shared payload cache objects, on parallel workers | [#124](https://github.com/NVIDIA/spark-local-inference/pull/124) | Verify and publish shared data | 863.7 s | 426.9 s |
+| The same, with the shared data already cached; Before is #124 without its cached-object verification | [#124](https://github.com/NVIDIA/spark-local-inference/pull/124) | Verify and publish shared data (shared data already cached) | 238.3 s | 149.6 s |
+
+The packages exported with #122, #124, #125 and #126 served normally with
+`flare run` (262k-token retrieval 16/16).
+
 Flare is a local inference server for NVIDIA SM120/SM121 GPUs, built for
 long conversations, coding agents, and repeated tool use. Its goal is to make
 the memory, bandwidth, and compute in workstations and compact systems such
