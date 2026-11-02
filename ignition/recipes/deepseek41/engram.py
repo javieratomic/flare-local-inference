@@ -142,9 +142,18 @@ class PreparedTableRequests:
         save_hidden(history, self.pool.region("engram_history"), m.state_rows, counts > 0)
 
 
+# Rows projected, reduced and mixed at once. Longer chunks run in blocks of this many rows,
+# which keeps the 25600-column projection buffers near the size of the attention stage
+# that shares their storage.
+PROJECTION_ROWS = 4096
+
+
 @dataclass(frozen=True)
 class EngramScratch:
-    """Intermediate lookup and projection storage for serialized Engram layers."""
+    """Intermediate lookup and projection storage for serialized Engram layers.
+
+    `partial` and `projected` hold one projection block of at most `PROJECTION_ROWS` rows.
+    """
 
     mask: torch.Tensor
     gathered: torch.Tensor
@@ -157,10 +166,11 @@ class EngramScratch:
         def zeros(shape, dtype):
             return (torch.zeros(shape, dtype=dtype, device=device) if buffers is None
                     else buffers.zeros(shape, dtype))
+        rows = min(tokens, PROJECTION_ROWS)
         gathered = zeros((tokens, 6144), torch.bfloat16)
         local = gathered if world == 1 else zeros((tokens, 6144 // world), torch.bfloat16)
-        partial = zeros((tokens, 25600), torch.bfloat16)
-        projected = partial if world == 1 else zeros((tokens, 25600), torch.bfloat16)
+        partial = zeros((rows, 25600), torch.bfloat16)
+        projected = partial if world == 1 else zeros((rows, 25600), torch.bfloat16)
         return cls(zeros(tokens, torch.bool), gathered, local, partial, projected)
 
 
@@ -175,27 +185,39 @@ class PreparedEngram:
         self.sharded = tables.shard.world_size > 1
         if self.sharded and runtime is None:
             raise ValueError("sharded Engram projection requires a collective runtime")
+        rows = min(tokens, PROJECTION_ROWS)
         for tensor, shape, dtype in ((self.mask, (tokens,), torch.bool),
                 (self.gathered, (tokens, 6144), torch.bfloat16),
                 (self.local, (tokens, 6144 // tables.shard.world_size), torch.bfloat16),
-                (self.partial, (tokens, 25600), torch.bfloat16),
-                (self.projected, (tokens, 25600), torch.bfloat16)):
+                (self.partial, (rows, 25600), torch.bfloat16),
+                (self.projected, (rows, 25600), torch.bfloat16)):
             if tensor.shape != shape or tensor.dtype != dtype or tensor.device != device or not tensor.is_contiguous():
                 raise ValueError("Engram scratch must match the contiguous lookup and projection geometry")
         self.lookup = PreparedEngramLookup(tables.inputs[layer], self.gathered, metadata.live_counts[:1],
             layer=layer, token_map=tables.token_map, geometry=tables.geometry,
             session=session, name=name + ".lookup", runtime=tables.readiness_runtime, coordinator=coordinator)
-        self.projection = QuantizedProjection(self.local, weights["projection"], self.partial,
-            session=session, name=name + ".projection", workspace=workspace, activation_mode="auto")
-        self.reduce = (PreparedChunkedAllReduce(self.partial.view(-1, 5120), self.projected.view(-1, 5120), runtime=runtime,
-            session=session, coordinator=coordinator, name=name + ".reduce") if self.sharded else None)
         self.norm_weight = weights["weight"].view(-1)
         self.eps = pool.config.text["rms_norm_eps"]
-        self.mix_plan = hyperconnection.plan(hyperconnection.Caps(device=device, max_tokens=tokens, hidden_size=5120),
-            invocation={"operation": "engram_mix", "eps": self.eps, "token_mask": True})
-        declare(session, (self.mix_plan.request(name=name + ".mix", prepare_call=lambda state: PreparedCall(
-            run=lambda: state.launch(source.view(tokens, -1), self.projected, self.norm_weight,
-                                      self.mask, output.view(tokens, -1), eps=self.eps))),))
+        # Each block projects, reduces and mixes its rows before the next reuses the projection buffers.
+        self.blocks = [(start, min(start + rows, tokens)) for start in range(0, tokens, rows)]
+        self.projections, self.reduces, self.mix_plans = [], [], []
+        flat_source, flat_output = source.view(tokens, -1), output.view(tokens, -1)
+        for index, (begin, end) in enumerate(self.blocks):
+            count = end - begin
+            suffix = "" if len(self.blocks) == 1 else f".{index}"
+            partial, projected = self.partial[:count], self.projected[:count]
+            self.projections.append(QuantizedProjection(self.local[begin:end], weights["projection"], partial,
+                session=session, name=name + ".projection" + suffix, workspace=workspace, activation_mode="auto"))
+            self.reduces.append(PreparedChunkedAllReduce(partial.view(-1, 5120), projected.view(-1, 5120),
+                runtime=runtime, session=session, coordinator=coordinator, name=name + ".reduce" + suffix)
+                if self.sharded else None)
+            plan = hyperconnection.plan(hyperconnection.Caps(device=device, max_tokens=count, hidden_size=5120),
+                invocation={"operation": "engram_mix", "eps": self.eps, "token_mask": True})
+            self.mix_plans.append(plan)
+            declare(session, (plan.request(name=name + ".mix" + suffix, prepare_call=lambda state, begin=begin,
+                    end=end, projected=projected: PreparedCall(
+                run=lambda: state.launch(flat_source[begin:end], projected, self.norm_weight,
+                                          self.mask[begin:end], flat_output[begin:end], eps=self.eps))),))
 
     def __call__(self, source):
         m = self.metadata
@@ -203,9 +225,13 @@ class PreparedEngram:
         self.lookup(source)
         if self.sharded:
             self.local.copy_(torch.index_select(self.gathered, 1, self.columns))
-        self.projection(self.local)
-        if self.sharded:
-            self.reduce(self.partial.view(-1, 5120))
-        hyperconnection.run_engram_mix(source.view(source.shape[0], -1), self.projected, self.norm_weight,
-            eps=self.eps, plan=self.mix_plan, out=self.output.view(source.shape[0], -1), token_mask=self.mask)
+        flat_source, flat_output = source.view(source.shape[0], -1), self.output.view(source.shape[0], -1)
+        for (begin, end), projection, reduce, plan in zip(self.blocks, self.projections, self.reduces,
+                                                           self.mix_plans, strict=True):
+            count = end - begin
+            projection(self.local[begin:end])
+            if reduce is not None:
+                reduce(self.partial[:count].view(-1, 5120))
+            hyperconnection.run_engram_mix(flat_source[begin:end], self.projected[:count], self.norm_weight,
+                eps=self.eps, plan=plan, out=flat_output[begin:end], token_mask=self.mask[begin:end])
         return self.output
