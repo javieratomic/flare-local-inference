@@ -20,21 +20,31 @@ def _overlap(left, right):
 
 def test_serial_stages_share_storage_without_overwriting_live_residuals_or_selections():
     scratch = Scratch.allocate(128, 1, 4, "cpu", candidate_tokens=16)
-    retained = (scratch.residual, scratch.engram_residual, scratch.attention_hc.residual,
+    # The Engram mix is consumed by the next attention hyperconnection before ffn_hc writes.
+    assert scratch.engram_residual is scratch.ffn_hc.residual
+    retained = (scratch.residual, scratch.attention_hc.residual,
                 scratch.ffn_hc.residual, scratch.attention.selected, scratch.attention.candidates,
-                scratch.attention.candidate_counts, scratch.mlp_output)
+                scratch.attention.candidate_counts, scratch.attention_output, scratch.mlp_output)
     concurrent = (scratch.shared.gate_up, scratch.shared.intermediate, scratch.shared.output,
                   scratch.routed, scratch.mlp_partial)
+    attention = (scratch.attention.projected, scratch.attention.query_low, scratch.attention.query,
+                 scratch.attention.window_values, scratch.attention.attended, scratch.attention.output,
+                 scratch.attention.index_query, scratch.attention.index_weights,
+                 scratch.attention.index_keys, scratch.attention.normalized_keys)
     for index, value in enumerate(retained):
         value.fill_(index + 1)
     for index, value in enumerate(concurrent):
         assert all(not _overlap(value, other) for other in (*retained, *concurrent[:index]))
+    for index, value in enumerate(attention):
+        assert all(not _overlap(value, other) for other in (*retained, *attention[:index]))
     assert any(_overlap(value, other) for value in concurrent
                for other in (scratch.embedding, scratch.engram.gathered, scratch.engram.projected))
+    assert any(_overlap(value, other) for value in attention
+               for other in (scratch.engram.partial, scratch.engram.projected, *concurrent))
     engram = (scratch.engram.gathered, scratch.engram.local, scratch.engram.partial, scratch.engram.projected)
     for index, value in enumerate(engram):
         assert all(not _overlap(value, other) for other in engram[:index])
-    for value in (scratch.embedding, *engram, *concurrent):
+    for value in (scratch.embedding, *engram, *attention, *concurrent):
         value.fill_(42)
     for index, value in enumerate(retained):
         assert value.eq(index + 1).all()
