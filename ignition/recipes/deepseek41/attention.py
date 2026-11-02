@@ -105,10 +105,29 @@ class AttentionScratch:
     normalized_keys: torch.Tensor
 
     @classmethod
-    def allocate(cls, tokens, world, device, *, buffers=None, candidate_tokens=None):
+    def indices(cls, tokens, device, *, buffers=None, candidate_tokens=None):
+        """Selected rows and candidate lists, which the candidate source layer carries forward."""
         candidate_tokens = tokens if candidate_tokens is None else candidate_tokens
         if type(candidate_tokens) is not int or not 0 < candidate_tokens <= tokens:
             raise ValueError("candidate row capacity must fit the attention token capacity")
+        def zeros(shape, dtype=torch.int32):
+            return (torch.zeros(shape, dtype=dtype, device=device) if buffers is None
+                    else buffers.zeros(shape, dtype))
+        return (zeros((tokens, 512)).fill_(-1), zeros((candidate_tokens, 16384)).fill_(-1),
+                zeros(candidate_tokens))
+
+    @classmethod
+    def allocate(cls, tokens, world, device, *, buffers=None, candidate_tokens=None, indices=None):
+        """Allocate one layer's attention intermediates.
+
+        Every buffer except `indices` is written and consumed within the layer, so it may
+        share a sequential stage. `indices` must then come from storage that outlives the
+        layer.
+        """
+        if indices is None:
+            indices = cls.indices(tokens, device, buffers=buffers, candidate_tokens=candidate_tokens)
+        elif indices[0].shape != (tokens, 512) or indices[1].shape[0] > tokens:
+            raise ValueError("attention indices must match the attention token capacity")
         def zeros(shape, dtype=torch.bfloat16):
             return (torch.zeros(shape, dtype=dtype, device=device) if buffers is None
                     else buffers.zeros(shape, dtype))
@@ -117,8 +136,7 @@ class AttentionScratch:
         return cls(zeros((tokens, 1792)),
             zeros((tokens, 1280)), zeros((tokens, heads, 512)),
             zeros((tokens, 512)), zeros((tokens, heads, 512)),
-            zeros((tokens, 5120)), zeros((tokens, 512), torch.int32).fill_(-1),
-            zeros((candidate_tokens, 16384), torch.int32).fill_(-1), zeros(candidate_tokens, torch.int32),
+            zeros((tokens, 5120)), *indices,
             zeros((tokens, 32, 128)), zeros((tokens, 32)), zeros((tokens, 128)), zeros((tokens, 128)))
 
 

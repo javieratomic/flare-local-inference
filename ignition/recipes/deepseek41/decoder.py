@@ -67,25 +67,29 @@ class Scratch:
             buffers = GraphBufferPool(device, chunk_bytes=2 << 20).cursor()
         def zeros(*shape, dtype=torch.bfloat16, cursor=buffers):
             return cursor.zeros(shape, dtype)
-        residual, engram_residual = zeros(tokens, 4, 5120), zeros(tokens, 4, 5120)
+        residual = zeros(tokens, 4, 5120)
         pre_mix, attn_mix = zeros(tokens, 4, dtype=torch.float32), zeros(tokens, 4, dtype=torch.float32)
         attention_hc = MHCScratch.allocate(tokens, 5120, device, buffers=buffers)
         ffn_hc = MHCScratch.allocate(tokens, 5120, device, buffers=buffers)
-        attention = AttentionScratch.allocate(tokens, world, device, buffers=buffers, candidate_tokens=candidate_tokens)
+        # Only the next attention hyperconnection reads the Engram mix, before ffn_hc writes
+        # its residual. The layer before an Engram layer applies its post, so no carry is live.
+        engram_residual = ffn_hc.residual
+        indices = AttentionScratch.indices(tokens, device, buffers=buffers, candidate_tokens=candidate_tokens)
         attention_output, mlp_output = zeros(tokens, 5120), zeros(tokens, 5120)
         _, vocabulary = TensorParallelShard(0, world).padded_partition(129280, alignment=64)
         hidden = zeros(samples, 5120)
         local_logits = zeros(samples, vocabulary, dtype=cls.logits_dtype)
         logits = zeros(samples, 129280, dtype=cls.logits_dtype)
-        # Embedding, Engram projection, and feed-forward intermediates execute serially.
-        embed, lookup, ffn = buffers.fork(), buffers.fork(), buffers.fork()
+        # Embedding, Engram projection, attention, and feed-forward intermediates execute serially.
+        embed, lookup, attend, ffn = buffers.fork(), buffers.fork(), buffers.fork(), buffers.fork()
         embedding = zeros(tokens, 5120, cursor=embed)
         engram = EngramScratch.allocate(tokens, device, buffers=lookup, world=world)
+        attention = AttentionScratch.allocate(tokens, world, device, buffers=attend, indices=indices)
         shared = MLPScratch.allocate(tokens, 5120, 2304 // world, device, buffers=ffn)
         router_logits = zeros(tokens, experts, dtype=torch.float32, cursor=ffn)
         router = RouterScratch.allocate(tokens, device, experts=experts, top_k=top_k, buffers=ffn)
         routed, partial = zeros(tokens, 5120, cursor=ffn), zeros(tokens, 5120, cursor=ffn)
-        buffers.join(embed, lookup, ffn)
+        buffers.join(embed, lookup, attend, ffn)
         return cls(embedding, residual, engram_residual, engram, pre_mix, attn_mix, attention_hc, ffn_hc,
             attention, attention_output, shared, router_logits, router, routed, partial, mlp_output,
             hidden, local_logits, logits, buffers)
