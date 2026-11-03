@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 Flare community contributors
+# SPDX-License-Identifier: Apache-2.0
+
 """Export a graph with ordinary and programmatic kernel dependencies."""
 
 import ctypes as C

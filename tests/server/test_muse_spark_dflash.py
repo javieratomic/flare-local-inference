@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
 """DFlash width transitions and complete prefix restores through native HTTP.
 
 Use the exported-package configuration documented in test_muse_spark.py, with

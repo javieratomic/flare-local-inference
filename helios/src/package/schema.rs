@@ -1,3 +1,8 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 //! Typed payload-package schema and bounded semantic validation.
 //!
 //! The generated Protobuf types describe signed payload identity, rank placement, initialization,

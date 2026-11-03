@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2026 Flare community contributors
+# SPDX-License-Identifier: Apache-2.0
+
 """Host prefix cache qualification: launch Flare, publish a conversation's
 checkpoints, evict them from the GPU, and observe restores from host memory,
 from disk across a restart, and shared by concurrent continuations.

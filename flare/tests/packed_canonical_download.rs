@@ -1,3 +1,8 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 //! Canonical download path for a packed payload package: embedded frontend
 //! payloads and located derivation-only dependencies must both resolve.
 //!

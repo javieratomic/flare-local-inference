@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
 """DFlash2 proposal scratch for attention widths distinct from model hidden widths."""
 
 from types import SimpleNamespace

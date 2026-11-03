@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 Flare community contributors
+# SPDX-License-Identifier: Apache-2.0
+
 """Triton KDA verification records and accepted-prefix replay with b12x's record layout.
 
 Verification reads each request's live FP32 state once and, per verified token,

@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
 """One captured proposal, bounded causal allocation, and target commit.
 
 The host supplies immutable per-request prefix ceilings and reserves their cache

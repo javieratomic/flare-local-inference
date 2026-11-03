@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2026 Flare community contributors
+# SPDX-License-Identifier: Apache-2.0
+
 """Native Qwen TP1 cache persistence and disabled-path regressions.
 
 Requires FLARE_RUN_CUDA_TESTS=1, an assigned CUDA_VISIBLE_DEVICES, and

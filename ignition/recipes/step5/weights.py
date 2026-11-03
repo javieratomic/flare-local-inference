@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
 """Direct Step-5 transfers, packed projections, and load-time weight conversion."""
 
 from contextlib import nullcontext

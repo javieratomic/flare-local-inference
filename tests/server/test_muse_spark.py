@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
 """Muse Spark text acceptance against an exported package served by ``flare run``.
 
 Set FLARE_RUN_CUDA_TESTS=1, FLARE_MUSE_TEST_URL, and FLARE_MUSE_SPARK_SNAPSHOT.

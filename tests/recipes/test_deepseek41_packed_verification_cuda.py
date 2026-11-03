@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 Flare community contributors
+# SPDX-License-Identifier: Apache-2.0
+
 """Packed target rows preserve long per-request windows and accepted cache records."""
 import os
 from copy import copy

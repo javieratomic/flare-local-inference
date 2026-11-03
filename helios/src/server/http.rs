@@ -1,3 +1,9 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2026 Flare community contributors
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 use super::protocol::{Encoder, Frame, PromptUsage, Protocol};
 use super::*;
 use futures_util::StreamExt;
@@ -172,8 +178,14 @@ pub(super) async fn generate(
         let _permit = permit;
         let _ingress = preparation_ingress;
         let body = decode_body(&bytes, &encoding, prepare_state.max_body_bytes)?;
-        let decoded = protocol::decode(protocol, body, count)
+        let mut decoded = protocol::decode(protocol, body, count)
             .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
+        if protocol != Protocol::Completions {
+            decoded.request.options.thinking_budget =
+                decoded.request.options.thinking_budget.or(prepare_state
+                    .thinking_token_budget
+                    .map(|tokens| super::inference::ThinkingBudget::Required(u64::from(tokens))));
+        }
         let tool_grammars = decoded
             .request
             .tools
@@ -293,8 +305,8 @@ pub(super) async fn generate(
         Protocol::Responses => "resp",
     };
     let id = format!(
-        "{prefix}-{}-{}",
-        std::process::id(),
+        "{prefix}-{:016x}-{}",
+        state.run,
         state.ids.fetch_add(1, Ordering::Relaxed)
     );
     let submitted = if prompts.is_empty() {
@@ -456,6 +468,7 @@ pub(super) async fn generate(
                 } => {
                     if continuous_usage {
                         encoder.observe_generated_token(index);
+                        encoder.report_reasoning_tokens(index, decoders[index].reasoning_tokens());
                     }
                     if observation.token_ids {
                         raw_tokens.push(token);
@@ -490,6 +503,10 @@ pub(super) async fn generate(
                         .finish(termination)
                         .and_then(|events| encoder.apply(index, events))
                         .and_then(|mut frames| {
+                            encoder.report_reasoning_tokens(
+                                index,
+                                decoders[index].reasoning_tokens(),
+                            );
                             let mut final_frames = encoder.finish(
                                 index,
                                 termination,

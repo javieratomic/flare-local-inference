@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
+# SPDX-FileCopyrightText: Copyright (c) 2026 Flare community contributors
 """Prepared full-vocabulary DSpark proposals with FP32 transition scores.
 
 The sequential vocabulary-block schedule is adapted from vLLM's DS41 fused

@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2026 Flare community contributors
+# SPDX-License-Identifier: Apache-2.0
+
 """Extract and validate the structural frontend fields consumed by Helios."""
 
 import json
@@ -15,13 +19,31 @@ class PromptEncoder(IntEnum):
 TOKEN_FIELDS = ("bos_token", "eos_token", "unk_token", "sep_token", "pad_token", "cls_token", "mask_token")
 
 
-def annotated_template_asset(source: bytes, annotated: Path):
-    """Validate output-preserving message annotations against a checkpoint template."""
-    annotated = annotated.resolve()
-    contents = annotated.read_bytes()
-    if contents.replace(b"{%- mark -%}", b"") != source:
-        raise ValueError(f"checkpoint chat template does not match {annotated}")
-    return {"path": str(annotated), "sha256": hashlib.sha256(contents).hexdigest()}
+def annotated_template_asset(source: bytes, patch_path: Path):
+    """Insert message marks into exact checkpoint bytes, without bundling that source."""
+    patch = json.loads(patch_path.read_text())
+    if hashlib.sha256(source).hexdigest() != patch["source_sha256"]:
+        raise ValueError(f"checkpoint chat template does not match {patch_path}")
+    parts, previous = [], 0
+    for offset in patch["insertions"]:
+        if type(offset) is not int or not previous <= offset <= len(source):
+            raise ValueError(f"invalid template insertion offset in {patch_path}")
+        parts.extend((source[previous:offset], b"{%- mark -%}"))
+        previous = offset
+    contents = b"".join((*parts, source[previous:]))
+    if hashlib.sha256(contents).hexdigest() != patch["result_sha256"]:
+        raise ValueError(f"patched chat template digest does not match {patch_path}")
+    return {"text": contents.decode("utf-8"), "sha256": patch["result_sha256"]}
+
+
+def downloaded_template_asset(patch_path: Path, *, cache_dir=None):
+    """Fetch a canonical template at its pinned HF revision, then annotate it."""
+    from huggingface_hub import hf_hub_download
+
+    source = json.loads(patch_path.read_text())["source"]
+    path = hf_hub_download(source["repository"], source["filename"],
+                           revision=source["revision"], cache_dir=cache_dir)
+    return annotated_template_asset(Path(path).read_bytes(), patch_path)
 
 
 def _token(value):

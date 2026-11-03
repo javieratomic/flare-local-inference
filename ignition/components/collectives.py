@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2026 Flare community contributors
+# SPDX-License-Identifier: Apache-2.0
+
 """Prepared b12x reductions and gathers embedded in compiled CUDA graphs.
 
 Ranks on one host communicate through b12x PCIe runtimes; ranks on separate
@@ -392,6 +396,8 @@ def _gather_transport_view(tensor):
 def _gather_columns(source, output, handle):
     source, output = _gather_transport_view(source), _gather_transport_view(output)
     owner = _OWNERS[handle]
+    from ignition.preparation.startup_tuning import record_consumer
+    record_consumer(owner)
     runtime = owner.runtime
     if owner.roce:
         runtime.all_gather(source, dim=-1, out=output, plan=owner.plan)
@@ -599,12 +605,34 @@ class PreparedAllGather:
         call = {"local_input": transport_source.view(source.shape[0], runtime.heads_per_rank, runtime.query_head_dim),
                 "out": transport_output.view(output.shape[0], runtime.total_heads, runtime.query_head_dim)}
         query = pcie.query_from_runtime(runtime, surface="DcpAllToAll.all_gather_heads", call=call)
+        startup = False
+        if getattr(session, "collective_tuning", "static") == "runtime":
+            from dataclasses import replace
+            from b12x.preparation import FrozenMapping
+            from ignition.preparation.collective_ladder import select_gather
+
+            ladder = session.collective_ladder
+            if ladder is None:
+                raise ValueError("runtime collective tuning requires a collective ladder")
+            if ladder["all_gather"] is not None:
+                row = select_gather(ladder, source.numel() * source.element_size(),
+                    world_size=runtime.world_size, capability=torch.cuda.get_device_capability(source.device))
+                self.runtime_profiles = tuple((mode, active) for mode, counts in row["profiles"].items() for active in counts)
+                self.runtime_cache_policy = ladder["cache_policy"]
+                query = replace(query, call=FrozenMapping(dict(query.call,
+                    gather_transport=row["implementation"].removeprefix("gather_"),
+                    threads=row["threads"], block_limit=row["blocks"],
+                    submode=self.runtime_profiles[0][0], active_blocks=1)))
+                startup = True
         self.plan = pcie.plan(query, runtime=runtime)
         ranks = tuple(dist.get_process_group_ranks(runtime.exchange_group))
         declare(session, (self.plan.request(name=name,
             prepare_call=lambda state: PreparedCall(run=lambda: state.run(**call), output=output,
                                                     owners=(runtime, source, output)),
             collective=CollectiveRequirement(key=name, ranks=ranks)),), coordinator=coordinator)
+        if startup:
+            from ignition.preparation.startup_tuning import register_collective
+            register_collective(self, session)
         self.handle = next(_HANDLES)
         _OWNERS[self.handle] = self
 
@@ -744,45 +772,3 @@ class PreparedLseReduceScatter:
             return self.output
         _lse_reduce_scatter(partial, lse, self.output, self.handle)
         return self.output
-
-
-@torch.library.custom_op("flare::pcie_vocabulary_argmax", mutates_args=("out",))
-def _vocabulary_argmax(base: torch.Tensor, bias: torch.Tensor, out: torch.Tensor, handle: int) -> None:
-    owner = _OWNERS[handle]
-    owner.runtime.fused_add_argmax(base, bias, out=out, plan=owner.plan)
-
-
-@_vocabulary_argmax.register_fake
-def _fake_vocabulary_argmax(base, bias, out, handle):
-    pass
-
-
-class PreparedVocabularyArgmax:
-    """Exact greedy tokens of BF16 vocabulary-shard logits plus a matching shard bias, without a gather.
-
-    Each rank holds contiguous vocabulary partitions; b12x's PCIe vocabulary-parallel argmax exchanges
-    every row's local maximum of the BF16-rounded sum. Every rank must run each call in the same order
-    with the same rows. Calls may pass other views with the prepared geometry, such as further rows
-    of the same base storage.
-    """
-
-    def __init__(self, base, bias, out, *, runtime, session, coordinator, name):
-        from b12x.comm.pcie import _owner_preparation
-
-        if (base.ndim != 2 or base.dtype != torch.bfloat16 or bias.shape != base.shape or bias.dtype != base.dtype
-                or base.stride(-1) != 1 or bias.stride(-1) != 1 or out.shape != (base.shape[0],)
-                or out.dtype != torch.int64 or not out.is_contiguous()
-                or base.shape[1] != runtime.local_vocab_size or not 0 < base.shape[0] <= runtime.max_batch_size):
-            raise ValueError("vocabulary argmax requires matching BF16 [rows, local vocabulary] shards and int64 rows")
-        self.runtime = runtime
-        call = dict(base=base, bias=bias, out=out)
-        self.plan = _owner_preparation.plan(_owner_preparation.query_from_runtime(runtime, call=call), runtime=runtime)
-        declare(session, (self.plan.request(name=name,
-            prepare_call=lambda state: _owner_preparation.prepared_call(state, **call),
-            collective=_owner_preparation.collective(runtime, key=name)),), coordinator=coordinator)
-        self.handle = next(_HANDLES)
-        _OWNERS[self.handle] = self
-
-    def __call__(self, base, bias, out):
-        _vocabulary_argmax(base, bias, out, self.handle)
-        return out

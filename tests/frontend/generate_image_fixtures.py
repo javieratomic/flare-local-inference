@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
 """Record exact Qwen4Exp fast-processor tensors, pixels and positional metadata."""
 
 from __future__ import annotations

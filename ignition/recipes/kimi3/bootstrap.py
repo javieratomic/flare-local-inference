@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2026 Flare community contributors
+# SPDX-License-Identifier: Apache-2.0
+
 """Prepare Kimi K3 text and image graphs with tensor-parallel decoder storage."""
 
 import contextlib
@@ -22,8 +26,7 @@ from ignition.components.paged_resume import PreparedResume
 from ignition.components.sampling import AdmissionBuffers, DeviceRequestState
 from ignition.components.state_transfer import StateCommands
 from ignition.preparation.collectives import (CollectivePreparation, create_all_gather_runtime,
-                                              create_all_reduce_runtime, create_head_exchange,
-                                              create_vocabulary_argmax_runtime)
+                                              create_all_reduce_runtime, create_head_exchange)
 from .routing import create_route_runtime
 from ignition.preparation.rank_group import minimum_across_ranks
 from ignition.preparation.capture import capture_forwards
@@ -199,15 +202,12 @@ def prepare_rank(snapshot, config, *, rank, group, progress=None, package_storag
         vocabulary_collective = create_all_gather_runtime(group, device,
             max_rows=max(config.decode_samples, slots * (config.draft_tokens or 1)),
             columns=weights.config.vocabulary, ipc=package_storage.peer_storage)
-        context_collective = draft_argmax = None
+        context_collective = markov_collective = None
         if drafting:
             context_collective = create_all_gather_runtime(group, device, max_rows=channel_rows,
                 columns=weights.config.hidden, ipc=package_storage.peer_storage)
-            # DSpark drafts greedily: each position's head and Markov shards meet in one vocabulary-parallel
-            # argmax without gathering both distributions.
-            draft_argmax = create_vocabulary_argmax_runtime(group, device,
-                local_vocab_size=weights.config.vocabulary // shard.world_size, max_rows=slots,
-                ipc=package_storage.peer_storage)
+            markov_collective = create_all_gather_runtime(group, device, max_rows=slots,
+                columns=2 * weights.config.vocabulary, ipc=package_storage.peer_storage)
         # Prefill rows beyond a channel's capacity gather in chunks, as they reduce.
         embedding_collective = create_all_gather_runtime(group, device, max_rows=channel_rows,
             columns=weights.config.hidden, ipc=package_storage.peer_storage)
@@ -312,7 +312,7 @@ def prepare_rank(snapshot, config, *, rank, group, progress=None, package_storag
         speculation = SpeculativePreparation(weights, pool, requests, inputs, decode_storage, completion=completion,
             frame=frame, sequence=sequence, session=session, workspace=arena, collectives=collectives,
             decoder_buffers=decoder_buffers, draft_tokens=config.draft_tokens, context_runtime=context_collective,
-            page_tokens=config.page_tokens, draft_argmax=draft_argmax)
+            page_tokens=config.page_tokens, markov_runtime=markov_collective)
     modes = (True, False) if drafting else (False,)
     count = (len(modes) * (prefill_graph_count(prefill_sizes, scoring) + 4 * len(batch_sizes)) + len(batch_sizes)
              + len(config.speculative_round_shapes) + len(patches))
@@ -466,4 +466,4 @@ def prepare_rank(snapshot, config, *, rank, group, progress=None, package_storag
                    decode_storage, metadata, compiled, stream, graph_pool, session, coordinator, collective,
                    vocabulary_collective, embedding_collective, router_collective, route_collective,
                    vision_inputs, vision_prefill, vision_state, vision_storage, scratch_pool, shared_scratch, graph_buffers,
-                   speculation, context_collective, draft_argmax, latent_runtimes))
+                   speculation, context_collective, markov_collective, latent_runtimes))

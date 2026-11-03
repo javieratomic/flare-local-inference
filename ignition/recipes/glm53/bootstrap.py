@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2026 Flare community contributors
+# SPDX-License-Identifier: Apache-2.0
+
 """Prepare a GLM tensor-parallel rank before native serving takes ownership."""
 
 import contextlib
@@ -642,7 +646,7 @@ def prepare_rank(snapshot: Path, config: PreparationConfig, *, rank, group, prog
     assets = {role: {"path": str(snapshot / filename)}
         for role, filename in (("tokenizer", "tokenizer.json"),)}
     assets["chat_template"] = annotated_template_asset(
-        (snapshot / "chat_template.jinja").read_bytes(), Path(__file__).with_name("assets") / "chat_template.jinja")
+        (snapshot / "chat_template.jinja").read_bytes(), Path(__file__).with_name("assets") / "chat_template.patch.json")
     generation = json.loads((snapshot / "generation_config.json").read_text())
     from .mla import MLAState
     cache_regions = []

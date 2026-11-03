@@ -1,3 +1,8 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 //! Observe memory before creating CUDA contexts, so occupied limits include driver setup.
 
 use std::ffi::{c_char, c_int, c_void};

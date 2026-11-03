@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
 """Dense Qwen text inputs, recurrent continuations, and paged attention storage."""
 
 from ignition.preparation import contract as c

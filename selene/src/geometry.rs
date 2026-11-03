@@ -1,3 +1,9 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2026 Flare community contributors
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 //! Per-rank cache geometry, the cross-rank record layout, and the layout fingerprint.
 //!
 //! Every runtime-sized `KV_PAGES` allocation on a rank is indexed by the same
@@ -98,6 +104,8 @@ pub struct RankLayout {
     pub page_offset: u64,
     /// Offset of each plane relative to `page_offset`.
     pub plane_offsets: Vec<u64>,
+    pub plane_bytes: Vec<u64>,
+    pub row_bytes: u64,
     /// Offset of this rank's row inside a row record.
     pub row_offset: u64,
 }
@@ -133,6 +141,8 @@ impl Layout {
             ranks.push(RankLayout {
                 page_offset: page_record_bytes,
                 plane_offsets,
+                plane_bytes: rank.planes.iter().map(|p| p.unit_bytes).collect(),
+                row_bytes: rank.row.unit_bytes,
                 row_offset: row_record_bytes,
             });
             page_record_bytes += offset;
@@ -144,6 +154,31 @@ impl Layout {
             page_record_bytes,
             row_record_bytes,
         })
+    }
+
+    pub fn page_share(&self, rank: usize) -> u64 {
+        self.ranks
+            .get(rank + 1)
+            .map_or(self.page_record_bytes, |r| r.page_offset)
+            - self.ranks[rank].page_offset
+    }
+
+    pub fn row_share(&self, rank: usize) -> u64 {
+        self.ranks
+            .get(rank + 1)
+            .map_or(self.row_record_bytes, |r| r.row_offset)
+            - self.ranks[rank].row_offset
+    }
+
+    pub fn row_slots(&self) -> usize {
+        (0..self.ranks.len())
+            .map(|rank| self.row_share(rank).div_ceil(self.page_share(rank)) as usize)
+            .max()
+            .unwrap()
+    }
+
+    pub fn record_slots(&self, pages: usize, row: bool) -> usize {
+        pages + usize::from(row) * self.row_slots()
     }
 
     /// Bytes a record with `pages` tail pages and a row occupies.

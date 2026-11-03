@@ -1,3 +1,8 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 //! Completed speculative forecasts and unified captured generation rounds.
 
 use super::{policy::{Candidate, bits}, utility::{LaneValue, ValueRate, best_cohort}, *};

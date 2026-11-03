@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 Flare community contributors
+# SPDX-License-Identifier: Apache-2.0
+
 """Multi-host prefix cache qualification: run every rank of a multi-host package
 as its own process, publish checkpoints, and confirm that each rank keeps its
 own record files and that a restart restores from all of them.

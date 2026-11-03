@@ -1,3 +1,9 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2026 Flare community contributors
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 //! Serve a prepared model package without a Python interpreter.
 
 #[cfg(unix)]
@@ -46,6 +52,9 @@ static STOP: AtomicBool = AtomicBool::new(false);
 extern "C" fn stop(_: libc::c_int) {
     STOP.store(true, Ordering::Relaxed);
 }
+
+#[cfg(all(feature = "roce", not(target_os = "linux")))]
+compile_error!("the roce feature requires Linux");
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let matches = cli::Cli::command().get_matches();
@@ -174,6 +183,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             .map_err(|error| error.to_string())?;
         configure_package_devices(&mut args, &authorized, &mut progress)?;
         _lease = lease;
+        if flare_helios::runtime_package::package_cluster(&authorized).is_some() && !args.stage_only
+        {
+            cluster::require_transport()?;
+        }
         if !args.hosts.is_empty() {
             launched = Some(
                 launch::Peers::start(&mut args, &authorized, &publisher, &root)
@@ -229,22 +242,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         return Ok(());
     }
+    if membership.is_some() {
+        cluster::require_transport()?;
+    }
     let options = args.load_options();
     let local_devices: Vec<i32> = (0..args.gpus.len() as i32).collect();
     let shape = cluster::Shape::from_flags(args.roce_ring, args.roce_chain);
     let rendezvous = args.rendezvous;
     // SAFETY: The trusted package owners remain live until every rank drains.
     let owner = unsafe {
-        NativeModel::load_agreeing(
-            authorized,
-            &local_devices,
-            &options,
-            &progress,
-            &mut |local| match membership.as_mut() {
-                Some(membership) => membership.agree(local),
-                None => Ok(local),
-            },
-        )?
+        let mut local = Ok;
+        let agreement: &mut dyn flare_helios::runtime_package::CacheAgreement =
+            match membership.as_mut() {
+                Some(membership) => membership,
+                None => &mut local,
+            };
+        NativeModel::load_agreeing(authorized, &local_devices, &options, &progress, agreement)?
     };
     let cluster = match (owner.cluster().cloned(), membership, rendezvous) {
         (Some(cluster), Some(membership), Some(address)) => Some((cluster, membership, address)),
@@ -275,6 +288,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         config["served_names"] = serde_json::json!([name]);
     }
     config["api_key"] = key.into();
+    config["thinking_token_budget"] = serde_json::json!(configuration.thinking_token_budget());
     phase.finish(config["model_id"].as_str().unwrap_or_default());
     serve(owner, config, progress, cluster, shape)?;
     #[cfg(unix)]

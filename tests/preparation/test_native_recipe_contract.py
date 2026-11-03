@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
 """Recipe metadata builders are checked by the serving contract validator.
 
 CPU tensors provide real buffer geometry. Graph handles are identifiers only;

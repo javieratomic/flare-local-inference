@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 Flare community contributors
+# SPDX-License-Identifier: Apache-2.0
+
 """Overlapped compression preserves cache bytes and input lifetimes during native replay."""
 
 import os

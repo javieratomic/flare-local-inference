@@ -1,3 +1,9 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2026 Flare community contributors
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 //! Files that hold orbit state: the agent's directory on a node and the controller's orbit file.
 //!
 //! Node side, under `~/.config/flare/agent/`: `node.key` (the identity), `controllers.toml`

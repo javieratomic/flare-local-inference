@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 Flare community contributors
+# SPDX-License-Identifier: Apache-2.0
+
 """Sparse-attention index selection on SM103 through FlashInfer's paged FP8 MQA logits and top-k.
 
 b12x's indexer issues block-scaled MMA instructions that SM103 does not have.

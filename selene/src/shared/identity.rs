@@ -1,3 +1,8 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026 Flare community contributors
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 //! Identities both ends of the pool protocol derive and compare: the scope
 //! id, the instance id and the process nonce.
 //!

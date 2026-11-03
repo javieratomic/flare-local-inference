@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2026 Flare community contributors
+# SPDX-License-Identifier: Apache-2.0
+
 """Package export and development serving with injected preparation resources."""
 
 import json
@@ -163,6 +167,21 @@ def test_export_records_rebuild_settings_and_closes_preparation(host):
     local = ResolvedModel(host['plan'].recipe, host['plan'].checkpoint, Path('/local/checkpoint'))
     local_manifest = types.SimpleNamespace(**from_plan(local, host['plan'], compiled_forwards=True))
     assert local_manifest.local_checkpoint and not local_manifest.checkpoint_revision
+
+
+@pytest.mark.parametrize("budget", [None, 1536])
+def test_export_server_options_match_package_contract(tmp_path, budget):
+    from google.protobuf.json_format import ParseDict
+    from ignition.preparation.runtime_package_pb2 import ServingContract
+
+    model = resolve("qwen3.8-flash")
+    plan = types.SimpleNamespace(recipe=model.recipe, checkpoint=model.checkpoint, reserve_bytes=0,
+                                 concurrency=model.recipe.concurrency, max_images=model.recipe.max_images)
+    config = tmp_path / "config.toml"
+    config.write_text("" if budget is None else f"[server]\nthinking_token_budget = {budget}\n")
+    options = serve._server_options(Configuration.load(config), model, plan)
+    options.pop("api_key")
+    ParseDict(options, ServingContract())
 
 
 @pytest.mark.parametrize(("alias", "served_name"), [
@@ -382,15 +401,18 @@ def test_export_does_not_launch_a_server_and_preserves_the_serving_plan(host, tm
     assert host["cache"] == Configuration.load(config).directory("package_cache")
 
 
-def test_development_listener_and_authentication_use_configuration(host, tmp_path, monkeypatch):
+@pytest.mark.parametrize("budget", [None, 1536])
+def test_development_listener_and_authentication_use_configuration(host, tmp_path, monkeypatch, budget):
     port = free_port()
     config = tmp_path / "config.toml"
-    config.write_text(f'[server]\nport = {port}\napi_key = "secret"\n')
+    config.write_text(f'[server]\nport = {port}\napi_key = "secret"\n'
+                      + ("" if budget is None else f"thinking_token_budget = {budget}\n"))
     calls = []
     monkeypatch.setattr(serve, "_serve_prepared", lambda prepared, bind, options: calls.append((bind, options)))
     assert main(["debug-serve", "qwen3.8-flash", "--gpus", "0", "--config", str(config)]) == 0
     assert calls[0][0] == f"127.0.0.1:{port}"
     assert calls[0][1]["api_key"] == "secret"
+    assert calls[0][1]["thinking_token_budget"] == budget
     assert host["exports"] == 0
 
 

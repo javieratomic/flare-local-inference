@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
 """Read full-vocabulary teacher-forced logits from captured Muse Spark text graphs.
 
 This diagnostic prepares the complete TP8 catalog with 262144-token context,

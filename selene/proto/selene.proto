@@ -1,3 +1,8 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026 Flare community contributors
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 // Selene pool protocol, version 2 (package selene.v2).
 //
 // The wire contract between an instance's in-process pool client (crate `selene`)

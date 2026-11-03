@@ -1,3 +1,9 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2026 Flare community contributors
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 //! Immutable terminal prefix metadata with explicit GPU readiness and retirement.
 
 mod hash;
@@ -216,6 +222,16 @@ impl PrefixCheckpointCache {
                 format!("unknown or retired checkpoint {}", id.value()),
             )
         })
+    }
+
+    pub(crate) fn single_child(&self, id: CheckpointId) -> Option<CheckpointId> {
+        if self.nodes.get(&id)?.child_count != 1 {
+            return None;
+        }
+        self.nodes
+            .values()
+            .find(|node| node.parent == Some(id))
+            .map(|node| node.id)
     }
 
     /// The GPU-ready checkpoint published under `prefix`, if any.

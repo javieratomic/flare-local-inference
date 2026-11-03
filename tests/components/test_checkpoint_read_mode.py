@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 Flare community contributors
+# SPDX-License-Identifier: Apache-2.0
+
 """RAM-backed checkpoint shards use a loader that supports their filesystem."""
 import os
 from pathlib import Path

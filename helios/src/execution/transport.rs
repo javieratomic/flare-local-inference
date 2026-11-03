@@ -1,3 +1,9 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2026 Flare community contributors
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 use std::{marker::PhantomData, rc::Rc, time::Instant};
 
 use crate::{
@@ -361,35 +367,19 @@ pub(super) fn collective_choices_overview(
     use std::collections::{BTreeMap, BTreeSet};
     use std::fmt::Write;
 
-    // Only this decoder assumes the b12x packed mode/CTA encoding.
-    fn decode(bytes: &[u8]) -> (String, Option<u32>) {
+    fn describe_value(bytes: &[u8]) -> String {
         let Ok(word) = <[u8; 4]>::try_from(bytes) else {
-            return (format!("raw={bytes:02x?}"), None);
+            return format!("raw={bytes:02x?}");
         };
-        let value = u32::from_ne_bytes(word);
-        let name = match value >> 16 {
-            0 => "Full".into(), 1 => "Payload RSAG".into(), 2 => "Bulk Push".into(),
-            3 => "Bulk Pull".into(), 4 => "Pull".into(), id => format!("Mode {id}"),
-        };
-        (name, Some(value & 0xffff))
+        format!("0x{:08x}", u32::from_ne_bytes(word))
     }
     fn describe<'a>(values: impl Iterator<Item = &'a [u8]>) -> String {
-        let mut modes: BTreeMap<String, BTreeSet<u32>> = BTreeMap::new();
-        for bytes in values {
-            let (name, ctas) = decode(bytes);
-            modes.entry(name).or_default().extend(ctas);
-        }
-        modes.into_iter().map(|(name, ctas)| {
-            if ctas.is_empty() { return name; }
-            let counts = ctas.into_iter().map(|n| n.to_string()).collect::<Vec<_>>().join(",");
-            format!("{name} ({counts} CTAs)")
-        }).collect::<Vec<_>>().join(", ")
+        values.map(describe_value).collect::<BTreeSet<_>>().into_iter().collect::<Vec<_>>().join(", ")
     }
     let mut totals = BTreeMap::new();
     let mut outputs = BTreeMap::new();
     for group in choices {
-        let modes = group.iter().map(|(_, bytes)| decode(bytes).0).collect::<BTreeSet<_>>();
-        let name = if modes.len() == 1 { modes.into_iter().next().unwrap() } else { "Mixed/unknown".into() };
+        let name = describe(group.iter().map(|(_, bytes)| bytes.as_slice()));
         *totals.entry(name).or_insert(0usize) += 1;
         outputs.extend(group.iter().map(|(name, bytes)| (name.as_str(), bytes.as_slice())));
     }

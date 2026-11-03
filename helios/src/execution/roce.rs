@@ -1,3 +1,8 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026 Flare community contributors
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 //! RoCEnante's RDMA proxy for packages whose ranks run on separate hosts.
 //!
 //! A rank's graphs launch b12x's RoCE kernels against a pinned region restored at its recorded

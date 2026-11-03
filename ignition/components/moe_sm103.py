@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2026 Flare community contributors
+# SPDX-License-Identifier: Apache-2.0
+
 """Routed experts on SM103 (GB300/B300) through FlashInfer's SM100-family MoE kernels.
 
 b12x executes routed experts on SM120/SM121 only. On compute capability 10.3

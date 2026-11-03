@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
 """Host prefix cache isolation measurements: serving latency with and without
 the host store under the copy-out and restore load the store creates.
 

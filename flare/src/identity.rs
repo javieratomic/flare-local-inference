@@ -1,3 +1,8 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 //! Who a package's signing key belongs to, resolved from the publisher's own repository.
 //!
 //! A package claims a signer fingerprint, a namespace, and an official source under that

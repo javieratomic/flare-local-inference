@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 Flare community contributors
+# SPDX-License-Identifier: Apache-2.0
+
 """Prompt-scoring vocabulary tiles honor the caller's output precision."""
 
 from types import SimpleNamespace

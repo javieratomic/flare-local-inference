@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 Flare community contributors
+# SPDX-License-Identifier: Apache-2.0
+
 """mHC post and pre for prefill-sized calls on SM103 through FlashInfer's mHC kernels.
 
 b12x's fused post/pre runs a 4096-row GLM call in about 250 us on GB300, far

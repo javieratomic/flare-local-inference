@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 Flare community contributors
+# SPDX-License-Identifier: Apache-2.0
+
 """Kimi K3 prefill attention over context that decode context parallel ranks share, one window at a time."""
 
 import os

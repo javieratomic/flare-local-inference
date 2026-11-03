@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 Flare community contributors
+# SPDX-License-Identifier: Apache-2.0
+
 """Capture gated compression and cache publication beside query preparation."""
 
 from types import SimpleNamespace

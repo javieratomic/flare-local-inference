@@ -1,3 +1,8 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 //! Actual Qwen selected-TP2 local cache acquisition from an externally combined
 //! TP1/TP2 package. The combined package is produced by the public HPP combine
 //! path; this test only reads exports and drives the public Helios cache

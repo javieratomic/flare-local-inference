@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 Flare community contributors
+# SPDX-License-Identifier: Apache-2.0
+
 """Kimi K3 decode routing: latent-down and router shards gathered with expert selection.
 
 Each rank projects its rows of the routed-expert down projection and its experts' router logits.

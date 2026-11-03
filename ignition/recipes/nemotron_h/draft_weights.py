@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
 """LiLiCorr checkpoint projections with separate NVFP4 gate and up weights."""
 
 from dataclasses import dataclass

@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 Flare community contributors
+# SPDX-License-Identifier: Apache-2.0
+
 """FP8 key pages and query scaling agree with independent arithmetic under replay."""
 
 import os

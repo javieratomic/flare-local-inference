@@ -1,3 +1,8 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 //! Inspect recorded graph launches without CUDA or weight reads.
 //!
 //! Prints JSON Lines; without --graph, lists the selected rank's graph catalog.

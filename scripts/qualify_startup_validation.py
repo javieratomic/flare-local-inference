@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
 """Exercise installed native startup rejection before CUDA or socket operations.
 
 Manifest addresses are synthetic metadata, never valid allocation handles. Every
@@ -150,7 +153,7 @@ def fixture(snapshot):
         "assets": {"tokenizer": {"path": str((snapshot / "tokenizer.json").resolve(strict=True)),
             "sha256": FRONTEND_SHA256["tokenizer.json"]},
             "chat_template": annotated_template_asset((snapshot / "chat_template.jinja").read_bytes(),
-                ROOT / "ignition/recipes/qwen38/assets/chat_template.jinja")}}
+                ROOT / "ignition/recipes/qwen38/assets/chat_template.patch.json")}}
     return manifest, config
 
 

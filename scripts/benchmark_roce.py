@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
 """Measure b12x RoCEnante graph replay between GPU ranks on separate hosts.
 
 Defaults match Qwen TP2 transport capacities and BF16 hidden reductions.

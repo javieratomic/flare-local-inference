@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2026 Flare community contributors
+# SPDX-License-Identifier: Apache-2.0
+
 """Parallel draft proposals, stochastic target verification and accepted-state commits."""
 
 import torch
@@ -65,10 +69,7 @@ class PreparedParallelDraftRound:
     """Prepare verification and optionally its draft generator.
 
     A target-only forward receives proposals from its enclosing captured round;
-    it allocates no draft decoder, Markov projection, or proposal samplers. An owner
-    whose ``draft_argmax`` names a vocabulary-parallel argmax runtime proposes greedy
-    drafts from the draft head's and Markov bias's vocabulary shards without gathering
-    them; each proposal distribution is then one-hot, so verification stays exact.
+    it allocates no draft decoder, Markov projection, or proposal samplers.
     """
 
     @staticmethod
@@ -179,15 +180,6 @@ class PreparedParallelDraftRound:
         self.active = torch.zeros(b, dtype=torch.bool, device=device)
         self.candidates = torch.zeros((b, w), dtype=torch.int64, device=device)
         self.drafts = torch.zeros((b, w - 1), dtype=torch.int64, device=device)
-        self.argmax = None
-        if self.draft is not None and getattr(o, "draft_argmax", None) is not None:
-            from .collectives import PreparedVocabularyArgmax
-
-            self.greedy_tokens = torch.zeros(b, dtype=torch.int64, device=device)
-            self.local_logits = self.draft.local_logits.view(b, block, -1)
-            self.argmax = PreparedVocabularyArgmax(self.local_logits[:, o.logit_offset], self.markov.local_bias,
-                self.greedy_tokens, runtime=o.draft_argmax, session=o.session,
-                coordinator=o.collectives["coordinator"], name=name + ".draft_argmax")
         from ignition.preparation.scratch import bind_scratch
 
         local_vocab = o.scratch.local_logits.shape[-1] if self.vocabulary_parallel else o.requests.vocab_size
@@ -223,7 +215,7 @@ class PreparedParallelDraftRound:
 
         # Full-vocabulary transition fusion improves one-row proposals. Wider
         # rows retain the bounded sampler because transition-weight reuse wins.
-        fuse_markov = (b == 1 and w > 1 and self.generate_proposals and self.argmax is None
+        fuse_markov = (b == 1 and w > 1 and self.generate_proposals
             and getattr(o, "block_proposal_broadcast", False) and o.markov_runtime is None
             and self.selector is None and self.markov is not None
             and ((isinstance(head, torch.Tensor) and head.dtype == torch.bfloat16 and head.is_contiguous())
@@ -239,7 +231,7 @@ class PreparedParallelDraftRound:
                 sampled=self.sampled,
                 workspace=self.sampling_scratch.get("proposal"),
             )
-            for i in range(w - 1 if self.generate_proposals and self.argmax is None and not fuse_markov else 0)
+            for i in range(w - 1 if self.generate_proposals and not fuse_markov else 0)
         )
         if target is not None:
             target.prepare()
@@ -397,16 +389,6 @@ class PreparedParallelDraftRound:
             )
             self.draft()
             self.markov_token.copy_(torch.where(self.active, self.candidates[:, 0], 0))
-            if self.argmax is not None:
-                # Greedy drafts: each position's shard logits plus its Markov bias, from the previous draft.
-                for i in range(w - 1):
-                    self.markov()
-                    self.argmax(self.local_logits[:, i + o.logit_offset], self.markov.local_bias, self.greedy_tokens)
-                    self.drafts[:, i].copy_(self.greedy_tokens)
-                    self.valid[:, i].copy_(self.active & (i < limits - 1))
-                    self.markov_token.copy_(self.greedy_tokens)
-                self.probabilities.zero_()
-                self.probabilities.scatter_(2, self.drafts[:, :, None], 1.0)
             if self.full_proposal is not None:
                 self.full_proposal()
                 if self.vocabulary_parallel:

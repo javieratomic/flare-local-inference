@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 Flare community contributors
+# SPDX-License-Identifier: Apache-2.0
+
 """GLM 5.3 routed experts on SM103: clamped SwiGLU through FlashInfer's MoE kernels against checkpoint references."""
 
 from __future__ import annotations

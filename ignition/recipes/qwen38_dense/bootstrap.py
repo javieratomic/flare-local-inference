@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2026 Flare community contributors
+# SPDX-License-Identifier: Apache-2.0
+
 """Prepare a single-GPU dense Qwen text graph catalog with device-resident state."""
 
 import contextlib
@@ -297,7 +301,7 @@ def prepare(snapshot, config, *, progress=None, package_storage):
     assets = {role: {"path": str(snapshot / file)}
               for role, file in (("tokenizer", "tokenizer.json"),)}
     assets["chat_template"] = annotated_template_asset(
-        (snapshot / "chat_template.jinja").read_bytes(), Path(__file__).parents[1] / "qwen38" / "assets" / "chat_template.jinja")
+        (snapshot / "chat_template.jinja").read_bytes(), Path(__file__).parents[1] / "qwen38" / "assets" / "chat_template.patch.json")
     eos = weights.config.text["eos_token_id"]
     tokenizer = json.loads((snapshot / "tokenizer_config.json").read_text())
     eos_text = tokenizer["eos_token"]

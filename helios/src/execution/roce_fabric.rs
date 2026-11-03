@@ -1,3 +1,8 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026 Flare community contributors
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 //! The RoCE fabric a rank's transport uses, found on its host when it serves.
 //!
 //! A package records what its kernels need of the transport (world, region layout, proxy ABI),

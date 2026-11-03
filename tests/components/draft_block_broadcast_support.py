@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 Flare community contributors
+# SPDX-License-Identifier: Apache-2.0
+
 """Compare per-position and complete-block canonical proposal broadcasts.
 
 The fixture uses input-dependent replicated transition rows and deliberately

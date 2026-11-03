@@ -1,3 +1,8 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026 Flare community contributors
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 //! Node and controller identities: one Ed25519 key each, stored as a 32-byte seed.
 //!
 //! A key signs launch grants and controller-set records, and authenticates the session handshake

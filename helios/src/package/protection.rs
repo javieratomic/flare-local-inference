@@ -1,3 +1,8 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 //! Authenticated payload-package envelopes and payload-relative executable access.
 //!
 //! One envelope carries a shared body, one signed body per prepared deployment, and one signed

@@ -1,3 +1,9 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2026 Flare community contributors
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 use super::*;
 use serde_json::json;
 
@@ -232,23 +238,23 @@ fn recipe_templates_match_on_messages_tools_images_and_options() {
     let sources = [
         (
             "qwen",
-            include_str!("../../../../ignition/recipes/qwen38/assets/chat_template.jinja"),
+            &crate::template_fixtures::template("qwen38", "chat_template")[..],
         ),
         (
             "step",
-            include_str!("../../../../ignition/recipes/step5/assets/chat_template.jinja"),
+            &crate::template_fixtures::template("step5", "chat_template")[..],
         ),
         (
             "glm",
-            include_str!("../../../../ignition/recipes/glm53/assets/chat_template.jinja"),
+            &crate::template_fixtures::template("glm53", "chat_template")[..],
         ),
         (
             "mimo",
-            include_str!("../../../../ignition/recipes/mimo_v2/assets/chat_template.jinja"),
+            &crate::template_fixtures::template("mimo_v2", "chat_template")[..],
         ),
         (
             "nemotron",
-            include_str!("../../../../ignition/recipes/nemotron_h/assets/chat_template.jinja"),
+            &crate::template_fixtures::template("nemotron_h", "chat_template")[..],
         ),
         (
             "kimi",
@@ -256,13 +262,11 @@ fn recipe_templates_match_on_messages_tools_images_and_options() {
         ),
         (
             "gemma",
-            include_str!("../../../../ignition/recipes/gemma4/assets/chat_template.google.jinja"),
+            &crate::template_fixtures::template("gemma4", "chat_template.google")[..],
         ),
         (
             "gemma-e2b-e4b",
-            include_str!(
-                "../../../../ignition/recipes/gemma4/assets/chat_template.google-e2b-e4b.jinja"
-            ),
+            &crate::template_fixtures::template("gemma4", "chat_template.google-e2b-e4b")[..],
         ),
     ];
     let user = json!({"role":"user","content":"  café 世界 👋 a\u{301}\r\n<|im_end|>  "});
@@ -406,9 +410,7 @@ fn qwen_content_macro_keeps_hints_only_when_its_result_is_emitted() {
         {"type":"text","text":"  Earlier history.\n"},
         {"type":"text","text":"Newest action."}]}],
         "enable_thinking":false,"add_generation_prompt":true});
-    let template = CompiledTemplate::compile(include_str!(
-        "../../../../ignition/recipes/qwen38/assets/chat_template.jinja"
-    ))
+    let template = CompiledTemplate::compile(&crate::template_fixtures::template("qwen38", "chat_template")[..])
     .unwrap();
     let plain = template.render(context.as_object().unwrap(), &[]).unwrap();
     let marked = template

@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2026 Flare community contributors
+# SPDX-License-Identifier: Apache-2.0
+
 """Derive a serving plan from a recipe's cost model and the host's free GPU memory.
 
 Weights, graphs, scratch and execution rows have dedicated storage. KV pages

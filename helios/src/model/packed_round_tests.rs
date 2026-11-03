@@ -1,3 +1,8 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 fn packed_round_manifest(config: &mut ModelConfig) -> crate::execution::ExecutionManifest {
     use crate::execution::{BufferDescriptor, Dtype, InputBinding};
     config.history_drafts = false;

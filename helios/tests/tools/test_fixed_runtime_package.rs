@@ -1,3 +1,8 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 use flare_helios::{ReplayWorker, runtime_package::NativeResources};
 use serde::Deserialize;
 use std::{collections::HashMap, path::PathBuf, time::Duration};

@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
 """Build a signed two-rank legacy package with a custom primary basename.
 
 The package is ordinary test data: both ranks have distinct weights, kernels,

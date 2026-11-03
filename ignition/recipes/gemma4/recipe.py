@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2026 Flare community contributors
+# SPDX-License-Identifier: Apache-2.0
+
 """Gemma 4 text preparation across dense, MoE, and Assistant MTP checkpoints."""
 
 from pathlib import Path
@@ -95,6 +99,7 @@ def prepare(
         compile_decoder=compile_forwards,
         retain_graphs=retain_graphs,
         kernel_cache=kernel_cache,
+        hub_cache=plan.hub_cache,
         **drafting,
     )
     if plan.world_size == 1:

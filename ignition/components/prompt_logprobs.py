@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 Flare community contributors
+# SPDX-License-Identifier: Apache-2.0
+
 """Blocked vocabulary-shard projection and raw prompt-token statistics."""
 
 import torch

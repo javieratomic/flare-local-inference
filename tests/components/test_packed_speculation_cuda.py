@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
 """A deterministic proposal backbone drives real validation and stochastic commit.
 
 The model-free fixture substitutes only proposal tokens and causal confidence.

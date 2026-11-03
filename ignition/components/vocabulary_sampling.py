@@ -1,4 +1,6 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
+
 """FP32 distributions and speculative block correction on vocabulary shards.
 
 Each rank retains its probabilities and exchanges compact reduction records.

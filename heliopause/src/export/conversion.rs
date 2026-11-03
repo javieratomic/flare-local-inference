@@ -1,3 +1,8 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 //! Convert and re-sign payload-format packages without CUDA initialization.
 use super::{ExportResult as Result, invalid};
 use super::protection::PublisherRequest;

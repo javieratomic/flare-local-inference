@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
 """Persistent startup outputs remain separate from serving inputs and capacities."""
 
 from types import SimpleNamespace
@@ -80,18 +83,27 @@ def test_registry_reuses_producer_until_its_consumers_change(monkeypatch):
     monkeypatch.setattr(pcie, "joint_startup_spec", spec, raising=False)
     monkeypatch.setattr(pcie, "prepare_joint_startup_tuner", prepare, raising=False)
     registry = CollectiveStartupTuning(object())
-    first = SimpleNamespace(key=("latency", 256), selector=torch.zeros(1))
+    state = SimpleNamespace(runtime=object())
+    first = SimpleNamespace(key=("latency", 256), selector=torch.zeros(1), state=state)
     registry.owners.append(SimpleNamespace(plan=first, runtime_profiles=(("full", 1),), runtime_cache_policy="cold"))
     registry.prepare()
     registry.prepare()
     assert len(prepared) == 1
-    second = SimpleNamespace(key=first.key, selector=torch.zeros(1))
+    second = SimpleNamespace(key=first.key, selector=torch.zeros(1), state=state)
     registry.owners.append(SimpleNamespace(plan=second, runtime_profiles=(("full", 1),), runtime_cache_policy="cold"))
     registry.prepare()
     assert len(prepared) == 2
-    assert registry.groups[first.key].specs == (first, second)
+    assert registry.groups[(first.key, id(state.runtime))].specs == (first, second)
     registry.prepare()
     assert len(prepared) == 2
+
+    separate = SimpleNamespace(key=first.key, selector=torch.zeros(1),
+                               state=SimpleNamespace(runtime=object()))
+    registry.owners.append(SimpleNamespace(plan=separate, runtime_profiles=(("full", 1),), runtime_cache_policy="cold"))
+    registry.prepare()
+    assert len(prepared) == 3
+    assert len(registry.groups) == 2
+    assert registry.groups[(separate.key, id(separate.state.runtime))].specs == (separate,)
 
 
 def test_standalone_registration_prepares_each_declared_consumer(monkeypatch):

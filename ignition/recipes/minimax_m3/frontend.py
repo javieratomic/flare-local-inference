@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
 """Namespace-delimited tools and explicit reasoning blocks for MiniMax M3."""
 
 import json
@@ -99,4 +102,4 @@ def runtime_assets(snapshot):
     snapshot = Path(snapshot)
     return {"tokenizer": {"path": str(snapshot / "tokenizer.json")},
             "chat_template": annotated_template_asset((snapshot / "chat_template.jinja").read_bytes(),
-                Path(__file__).with_name("assets") / "chat_template.jinja")}
+                Path(__file__).with_name("assets") / "chat_template.patch.json")}

@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2026 Flare community contributors
+# SPDX-License-Identifier: Apache-2.0
+
 """Compare combined and split speculative decoding for DeepSeek V4.1 Flash.
 
 Research-only: the Python driver chooses diagnostic steps. GPU timing and driver

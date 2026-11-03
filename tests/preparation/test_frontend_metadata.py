@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2026 Flare community contributors
+# SPDX-License-Identifier: Apache-2.0
+
 """Structural extraction and model-card defaults at the runtime package boundary."""
 
 from pathlib import Path
@@ -6,22 +10,12 @@ import json
 from google.protobuf.json_format import MessageToDict, ParseError
 import pytest
 
-from ignition.preparation.frontend import annotated_template_asset, image_settings, prepare_frontend, tokenizer_settings
+from ignition.preparation.frontend import image_settings, prepare_frontend, tokenizer_settings
 from ignition.preparation.package_file import combine, read_index, write_sources
 from ignition.preparation.package_proto import serving
 from ignition.preparation.runtime_package_pb2 import BundleIndex, ModelIndex
 from ignition.recipes import recipes
 from ignition.recipes.declaration import SamplingDefaults, SamplingRange
-
-
-def test_template_annotations_require_exact_checkpoint_source(tmp_path):
-    source = b"{{ messages[0].content }}"
-    path = tmp_path / "chat_template.jinja"
-    path.write_bytes(source + b"{%- mark -%}")
-    asset = annotated_template_asset(source, path)
-    assert Path(asset["path"]).read_bytes() == source + b"{%- mark -%}"
-    with pytest.raises(ValueError, match="checkpoint chat template does not match"):
-        annotated_template_asset(source + b" ", path)
 
 
 @pytest.mark.parametrize("recipe", recipes(), ids=lambda recipe: recipe.name)

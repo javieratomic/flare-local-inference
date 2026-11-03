@@ -1,3 +1,8 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 //! Inspection and reclamation for the Hugging Face download transport cache.
 //!
 //! `flare download` fetches prepared packages through one shared tree per download

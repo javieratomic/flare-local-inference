@@ -1,3 +1,8 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 //! Bounded safetensors containers for payload-based packages.
 //!
 //! Both canonical forms use the same schema: a primary with metadata tensors and
@@ -885,7 +890,8 @@ fn opened_path(file: &File) -> Result<PathBuf> {
         buffer.truncate(written as usize);
         let text = String::from_utf16(&buffer)
             .map_err(|_| invalid("package handle path is not UTF-16"))?;
-        let text = text.strip_prefix(r"\\?\").unwrap_or(&text);
+        // Keep the `\\?\` prefix: the root it is compared against comes from
+        // `fs::canonicalize`, which returns the same verbatim form.
         return Ok(PathBuf::from(text));
     }
     #[cfg(not(windows))]
@@ -895,6 +901,17 @@ fn opened_path(file: &File) -> Result<PathBuf> {
             "handle-confined package opens require a supported platform",
         ))
     }
+}
+
+/// Flushes a closed file's contents to stable storage. Windows
+/// `FlushFileBuffers` requires a handle with write access, so a read-only
+/// handle cannot sync there.
+pub(crate) fn sync_file(path: &Path) -> io::Result<()> {
+    #[cfg(windows)]
+    let file = OpenOptions::new().write(true).open(path)?;
+    #[cfg(not(windows))]
+    let file = File::open(path)?;
+    file.sync_all()
 }
 
 /// Opens one package file beneath `root`, confined to the opened handle.

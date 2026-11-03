@@ -1,3 +1,8 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026 Flare community contributors
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 
     use super::*;
 use std::net::TcpListener;
@@ -235,7 +240,7 @@ use std::net::TcpListener;
             events(&mut transport, 1).as_slice(),
             [TransportEvent::Stored {
                 id: JobId(7),
-                result: Err(_)
+                result: Err(_), ..
             }]
         ));
         assert!(seventh.exists());
@@ -277,7 +282,7 @@ use std::net::TcpListener;
         let zero_directory = directory("mirror-zero");
         let peer_directory = directory("mirror-peer");
         let (zero, peer) = connected();
-        let lock = record::DirectoryLock::acquire(&peer_directory).unwrap();
+        let lock = crate::testing::directory_lock(&peer_directory).unwrap();
         let service_directory = peer_directory.clone();
         let service = std::thread::spawn(move || {
             let mut peer = Peer {
@@ -370,7 +375,7 @@ use std::net::TcpListener;
     #[test]
     fn an_unconfirmed_drain_is_reported_so_the_peer_keeps_its_staging() {
         let directory = directory("drain");
-        let lock = record::DirectoryLock::acquire(&directory).unwrap();
+        let lock = crate::testing::directory_lock(&directory).unwrap();
         let (zero, peer) = connected();
         let mut peer = Peer {
             staged: staged(),
@@ -412,7 +417,7 @@ use std::net::TcpListener;
     #[test]
     fn a_peer_rejects_a_header_from_another_layout() {
         let directory = directory("layout");
-        let lock = record::DirectoryLock::acquire(&directory).unwrap();
+        let lock = crate::testing::directory_lock(&directory).unwrap();
         let (zero, peer) = connected();
         let peer = Peer {
             staged: staged(),

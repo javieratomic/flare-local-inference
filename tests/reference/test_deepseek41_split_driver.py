@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 Flare community contributors
+# SPDX-License-Identifier: Apache-2.0
+
 """Native diagnostic timing retains all participating TP rank intervals."""
 
 from types import SimpleNamespace

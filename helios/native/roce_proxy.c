@@ -1,3 +1,8 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026 Flare community contributors
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 // Vendored from FlashInfer's pinned preparation dependency
 // (flashinfer/experimental/b12x/comm/roce/_roce_proxy.c, proxy ABI 10).
 // Keep the source below identical so preparation and serving share the transport ABI.

@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 Flare community contributors
+# SPDX-License-Identifier: Apache-2.0
+
 """FP8 sparse selection with b12x Hadamard quantization and caller-owned pages."""
 
 import torch

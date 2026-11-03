@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 Flare community contributors
+# SPDX-License-Identifier: Apache-2.0
+
 """mHC prefill on SM103 through FlashInfer's kernels against b12x's references."""
 
 from __future__ import annotations

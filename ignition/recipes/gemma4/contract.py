@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 Flare community contributors
+# SPDX-License-Identifier: Apache-2.0
+
 """Gemma 4 text inputs, continuation state, and paged attention storage."""
 
 from ignition.preparation import contract as c

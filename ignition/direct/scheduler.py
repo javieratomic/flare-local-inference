@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2026 Flare community contributors
+# SPDX-License-Identifier: Apache-2.0
+
 """A small fixed scheduler and the graph inputs it packs, mirroring Helios for paged text models.
 
 This is the CPU half of Ignition's diagnostic direct execution. It owns request

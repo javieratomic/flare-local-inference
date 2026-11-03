@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2026 Flare community contributors
+# SPDX-License-Identifier: Apache-2.0
+
 """Request-owned stochastic sampling and admission for native CUDA graph replay.
 
 Physical slots retain RNG counters, token counts, penalties, and grammar masks.

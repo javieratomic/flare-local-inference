@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
 """Apply the pinned PyTorch Inductor and Triton fixes before preparation imports."""
 
 import os
@@ -53,17 +56,26 @@ def apply() -> tuple[Path, ...]:
     Replacing files breaks wheel-cache hardlinks instead of modifying shared bytes.
     """
     try:
-        packages = {name: distribution(name) for name in _VERSIONS}
+        packages = {}
         for name, expected in _VERSIONS.items():
-            if packages[name].version != expected:
+            try:
+                package = distribution(name)
+            except PackageNotFoundError:
+                if name == "triton" and sys.platform == "win32":
+                    continue
+                raise
+            if package.version != expected:
                 raise PreparationError(
-                    f"Preparation patches require {name}=={expected}; found {packages[name].version}. "
+                    f"Preparation patches require {name}=={expected}; found {package.version}. "
                     "Install the locked preparation dependencies with uv sync --locked --extra prepare.")
+            packages[name] = package
 
         sources, patched, modules = {}, {}, {}
         for name in _PATCHES:
             for relative, before, after in _hunks(files(__package__).joinpath(name).read_text(encoding="utf-8")):
                 package = relative.split("/", 1)[0]
+                if package not in packages:
+                    continue
                 path = Path(packages[package].locate_file(relative))
                 modules[path] = relative.removesuffix(".py").replace("/", ".")
                 if path not in sources:

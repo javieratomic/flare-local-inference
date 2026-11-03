@@ -442,8 +442,10 @@ follow the checkpoint template's identity tests and local-calendar formatting.
 Literal replacement filters carry advisory block endpoints through mapped
 substitutions and omit endpoints inside replaced spans.
 
-The exact deployed Qwen3.8, inference-transformed Step, and segmented Kimi K3
-templates are replaced in memory with their annotated recipe assets. Kimi K3
+The exact deployed Qwen3.8 and inference-transformed Step templates are upgraded
+in memory using bundled insertion offsets, guarded by source and result SHA-256
+hashes. Their upstream text is supplied by the package and is not embedded in
+Helios. The segmented Kimi K3 template uses its custom project renderer. Kimi K3
 uses segment-count marks at the preamble and complete-message endpoints.
 Other unannotated templates fail to load. Checkpoint-derived annotations must
 reproduce the source bytes when removed. Gemma 4 selects one of two annotated

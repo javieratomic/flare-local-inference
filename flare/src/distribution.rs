@@ -1,3 +1,9 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2026 Flare community contributors
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 //! Serving bootstrap: exchange rank metadata, distribute verified sparse packages over CX7,
 //! then hand the management sockets to the native collective rendezvous.
 
@@ -29,7 +35,8 @@ use std::{
     time::{Duration, Instant},
 };
 
-const VERSION: u32 = 3;
+// Version 4 adds the prefix pool offer and approval to the rendezvous.
+const VERSION: u32 = 4;
 const TIMEOUT: Duration = Duration::from_secs(1800);
 const IO_TIMEOUT: Duration = Duration::from_secs(120);
 const MAX_FRAME: usize = 16 << 20;

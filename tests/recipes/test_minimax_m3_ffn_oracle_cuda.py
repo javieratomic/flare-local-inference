@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
 """Real-checkpoint TP4 FFN oracle, independent of the prepared MoE implementation.
 
 Run with torchrun on four assigned GPUs. Inputs are checkpoint embedding rows

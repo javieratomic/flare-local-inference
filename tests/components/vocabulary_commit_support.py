@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
 """A finite conditional language model composed with prepared request machinery.
 
 The model has 32 vocabulary IDs and assigns positive mass to IDs 0, 1 and 2.

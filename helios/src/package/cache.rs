@@ -1,3 +1,8 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 //! Immutable payload model cache: content-addressed objects, published directory
 //! entries, process-owned leases, and crash-safe reclamation.
 //!
@@ -1265,7 +1270,7 @@ impl Root {
                 },
             )?;
             let companion = format!("weights/tuned/{deployment}/derived-{:03}.safetensors", ordinal - 1);
-            fs::remove_file(&target).map_err(failure)?;
+            remove_file(&target).map_err(failure)?;
             staging.link(&object, &companion)?;
             present.insert(identity.as_bytes().to_vec(), object.slice().clone());
             sources.insert(identity, object.slice().clone());
@@ -1516,7 +1521,7 @@ impl Root {
             self.publish_payload(&transaction, &staged, id, slice.len())
         })();
         if result.is_err() {
-            let _ = fs::remove_file(&staged);
+            let _ = remove_file(&staged);
         }
         result
     }
@@ -2493,7 +2498,7 @@ impl Root {
                 if live.contains(&identity) {
                     continue;
                 }
-                fs::remove_file(&item).map_err(failure)?;
+                remove_file(&item).map_err(failure)?;
                 collected.objects += 1;
                 collected.legacy += usize::from(legacy);
             }
@@ -2508,7 +2513,7 @@ impl Root {
                     continue;
                 };
                 if item.is_file() {
-                    fs::remove_file(&item).map_err(failure)?;
+                    remove_file(&item).map_err(failure)?;
                 }
             }
         }
@@ -2626,7 +2631,7 @@ impl Root {
         make_immutable(staged)?;
         match fs::hard_link(staged, destination) {
             Ok(()) => {
-                fs::remove_file(staged).map_err(failure)?;
+                remove_file(staged).map_err(failure)?;
                 Ok(())
             }
             Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
@@ -2640,7 +2645,7 @@ impl Root {
                 }
                 verify_slice(&slice, id, None)?;
                 make_immutable(destination)?;
-                fs::remove_file(staged).map_err(failure)
+                remove_file(staged).map_err(failure)
             }
             Err(error) => Err(failure(error)),
         }
@@ -2651,13 +2656,13 @@ impl Root {
         make_immutable(staged)?;
         match fs::hard_link(staged, destination) {
             Ok(()) => {
-                fs::remove_file(staged).map_err(failure)?;
+                remove_file(staged).map_err(failure)?;
                 Ok(())
             }
             Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
                 verify_file(destination, id)?;
                 make_immutable(destination)?;
-                fs::remove_file(staged).map_err(failure)
+                remove_file(staged).map_err(failure)
             }
             Err(error) => Err(failure(error)),
         }
@@ -3090,11 +3095,7 @@ impl Staging {
         if let Some(parent) = destination.parent() {
             fs::create_dir_all(parent).map_err(failure)?;
         }
-        fs::copy(object.path(), &destination).map_err(failure)?;
-        File::open(&destination)
-            .map_err(failure)?
-            .sync_all()
-            .map_err(failure)?;
+        copy_file(object.path(), &destination).map_err(failure)?;
         self.copied = true;
         Ok(())
     }
@@ -3343,6 +3344,10 @@ impl Lock {
     /// Convert this lock to shared on the same open file description.
     fn downgrade(self) -> Result<Self> {
         lock(&self.0, false, true).map_err(failure)?;
+        // `LockFileEx` adds the shared lock beside the exclusive one instead of converting
+        // it; the first unlock of a range holding both releases the exclusive lock.
+        #[cfg(windows)]
+        unlock(&self.0).map_err(failure)?;
         Ok(self)
     }
 
@@ -3389,7 +3394,7 @@ fn lock(file: &File, exclusive: bool, blocking: bool) -> io::Result<()> {
 #[cfg(windows)]
 fn lock(file: &File, exclusive: bool, blocking: bool) -> io::Result<()> {
     use std::os::windows::io::AsRawHandle;
-    use windows_sys::Win32::Foundation::HANDLE;
+    use windows_sys::Win32::Foundation::{ERROR_LOCK_VIOLATION, HANDLE};
     use windows_sys::Win32::Storage::FileSystem::{
         LOCKFILE_EXCLUSIVE_LOCK, LOCKFILE_FAIL_IMMEDIATELY, LockFileEx,
     };
@@ -3404,6 +3409,26 @@ fn lock(file: &File, exclusive: bool, blocking: bool) -> io::Result<()> {
         flags |= LOCKFILE_FAIL_IMMEDIATELY;
     }
     if unsafe { LockFileEx(handle, flags, 0, u32::MAX, u32::MAX, &mut overlapped) } == 0 {
+        let error = io::Error::last_os_error();
+        // A conflicting holder refuses LOCKFILE_FAIL_IMMEDIATELY with ERROR_LOCK_VIOLATION;
+        // report it as `WouldBlock`, as `flock` reports `LOCK_NB` conflicts.
+        if !blocking && error.raw_os_error() == Some(ERROR_LOCK_VIOLATION as i32) {
+            return Err(io::ErrorKind::WouldBlock.into());
+        }
+        return Err(error);
+    }
+    Ok(())
+}
+
+/// Release one lock that `lock` placed over the whole file.
+#[cfg(windows)]
+fn unlock(file: &File) -> io::Result<()> {
+    use std::os::windows::io::AsRawHandle;
+    use windows_sys::Win32::Foundation::HANDLE;
+    use windows_sys::Win32::Storage::FileSystem::UnlockFileEx;
+    use windows_sys::Win32::System::IO::OVERLAPPED;
+    let mut overlapped: OVERLAPPED = unsafe { std::mem::zeroed() };
+    if unsafe { UnlockFileEx(file.as_raw_handle() as HANDLE, 0, u32::MAX, u32::MAX, &mut overlapped) } == 0 {
         return Err(io::Error::last_os_error());
     }
     Ok(())
@@ -3676,6 +3701,52 @@ pub(crate) fn rename_noreplace(from: &Path, to: &Path) -> io::Result<()> {
     fs::rename(from, to)
 }
 
+/// Remove one link to a file that may already be sealed read-only.
+#[cfg(not(windows))]
+fn remove_file(path: &Path) -> io::Result<()> {
+    fs::remove_file(path)
+}
+
+/// Remove one link to a file that may already be sealed read-only.
+///
+/// `DeleteFileW` refuses read-only files, and the attribute belongs to the file
+/// rather than the link, so clearing it would also unseal every other hard link
+/// to the same object. A POSIX-semantics disposition that ignores the attribute
+/// removes only this link.
+#[cfg(windows)]
+fn remove_file(path: &Path) -> io::Result<()> {
+    use std::os::windows::fs::OpenOptionsExt;
+    use std::os::windows::io::AsRawHandle;
+    use windows_sys::Win32::Storage::FileSystem::{
+        DELETE, FILE_DISPOSITION_FLAG_DELETE, FILE_DISPOSITION_FLAG_IGNORE_READONLY_ATTRIBUTE,
+        FILE_DISPOSITION_FLAG_POSIX_SEMANTICS, FILE_DISPOSITION_INFO_EX,
+        FILE_FLAG_OPEN_REPARSE_POINT, FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE,
+        FileDispositionInfoEx, SetFileInformationByHandle,
+    };
+    let file = OpenOptions::new()
+        .access_mode(DELETE)
+        .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE)
+        .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT)
+        .open(path)?;
+    let disposition = FILE_DISPOSITION_INFO_EX {
+        Flags: FILE_DISPOSITION_FLAG_DELETE
+            | FILE_DISPOSITION_FLAG_POSIX_SEMANTICS
+            | FILE_DISPOSITION_FLAG_IGNORE_READONLY_ATTRIBUTE,
+    };
+    let set = unsafe {
+        SetFileInformationByHandle(
+            file.as_raw_handle().cast(),
+            FileDispositionInfoEx,
+            (&raw const disposition).cast(),
+            std::mem::size_of::<FILE_DISPOSITION_INFO_EX>() as u32,
+        )
+    };
+    if set == 0 {
+        return Err(io::Error::last_os_error());
+    }
+    Ok(())
+}
+
 fn remove_tree(path: &Path) -> Result<()> {
     match fs::remove_dir_all(path) {
         Ok(()) => Ok(()),
@@ -3703,7 +3774,7 @@ fn export_tree(source: &Path, destination: &Path) -> Result<()> {
             match fs::hard_link(&item, &target) {
                 Ok(()) => {}
                 Err(error) if error.kind() == io::ErrorKind::CrossesDevices => {
-                    fs::copy(&item, &target).map_err(failure)?;
+                    copy_file(&item, &target).map_err(failure)?;
                 }
                 Err(error) => return Err(failure(error)),
             }
@@ -3729,7 +3800,7 @@ fn copy_tree(source: &Path, destination: &Path) -> Result<()> {
         if kind.is_dir() {
             copy_tree(&item, &target)?;
         } else if kind.is_file() {
-            fs::copy(&item, &target).map_err(failure)?;
+            copy_file(&item, &target).map_err(failure)?;
         } else {
             return Err(format!("export tree is not a regular file: {}", item.display()).into());
         }
@@ -3743,6 +3814,31 @@ fn make_immutable(path: &Path) -> Result<()> {
     fs::set_permissions(path, permissions).map_err(failure)
 }
 
+/// Copy one file to a new destination with the source's permissions, and flush the copy.
+#[cfg(not(windows))]
+fn copy_file(source: &Path, destination: &Path) -> io::Result<()> {
+    fs::copy(source, destination)?;
+    super::container::sync_file(destination)
+}
+
+/// Copy one file to a new destination with the source's permissions, and flush the copy.
+///
+/// Windows cannot flush a read-only file, and `fs::copy` carries a sealed
+/// source's read-only attribute, so the copy is written and flushed through a
+/// writable handle before the source's permissions are applied.
+#[cfg(windows)]
+fn copy_file(source: &Path, destination: &Path) -> io::Result<()> {
+    let mut input = File::open(source)?;
+    let mut output = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(destination)?;
+    io::copy(&mut input, &mut output)?;
+    output.sync_all()?;
+    drop(output);
+    fs::set_permissions(destination, input.metadata()?.permissions())
+}
+
 pub(crate) fn synchronize(directory: &Path) -> Result<()> {
     for item in read_dir(directory)? {
         let metadata = fs::symlink_metadata(&item).map_err(failure)?;
@@ -3753,10 +3849,13 @@ pub(crate) fn synchronize(directory: &Path) -> Result<()> {
         if kind.is_dir() {
             synchronize(&item)?;
         } else if kind.is_file() {
-            File::open(&item)
-                .map_err(failure)?
-                .sync_all()
-                .map_err(failure)?;
+            // Windows cannot flush a read-only file. Every file is flushed before it is
+            // sealed: payloads by `stage_payload` and `write_stream`, copies by `copy_file`.
+            #[cfg(windows)]
+            if metadata.permissions().readonly() {
+                continue;
+            }
+            super::container::sync_file(&item).map_err(failure)?;
         } else {
             return Err(format!("staged entry is not a regular file: {}", item.display()).into());
         }
@@ -4553,8 +4652,8 @@ mod tests {
         let transport = root.path().join("staging/trees/transfer-writer");
         let blobs = transport.join("models--org--name/blobs");
         fs::create_dir_all(&blobs).unwrap();
-        fs::write(blobs.join("sha256:abc"), b"complete").unwrap();
-        fs::write(blobs.join("sha256:abc.part"), b"partial").unwrap();
+        fs::write(blobs.join("sha256_3Aabc"), b"complete").unwrap();
+        fs::write(blobs.join("sha256_3Aabc.part"), b"partial").unwrap();
         let export = root.path().join("staging/trees/export-writer");
         fs::create_dir_all(&export).unwrap();
         fs::write(export.join("model.safetensors"), b"partial").unwrap();
@@ -4576,7 +4675,7 @@ mod tests {
         fs::create_dir_all(&blobs).unwrap();
         fs::hard_link(
             object.path(),
-            blobs.join("sha256:0123456789abcdef"),
+            blobs.join("sha256_3A0123456789abcdef"),
         )
         .unwrap();
         drop(object);
@@ -5073,6 +5172,18 @@ mod tests {
         publisher
     }
 
+    /// Replace a sealed entry file with `temporary`. Windows refuses to replace a
+    /// read-only file, so the seal is lifted first; callers close their handles to it.
+    fn replace_sealed(temporary: &Path, path: &Path) {
+        #[cfg(windows)]
+        {
+            let mut permissions = fs::metadata(path).unwrap().permissions();
+            permissions.set_readonly(false);
+            fs::set_permissions(path, permissions).unwrap();
+        }
+        fs::rename(temporary, path).unwrap();
+    }
+
     fn rewrite_primary(
         directory: &std::path::Path,
         locations: Vec<wire::PayloadLocation>,
@@ -5152,7 +5263,9 @@ mod tests {
         }
         writer.finish().unwrap();
         output.sync_all().unwrap();
-        fs::rename(temporary, path).unwrap();
+        std::mem::drop(output);
+        std::mem::drop(metadata);
+        replace_sealed(&temporary, &path);
     }
 
 
@@ -5213,7 +5326,9 @@ mod tests {
         }
         writer.finish().unwrap();
         output.sync_all().unwrap();
-        fs::rename(temporary, path).unwrap();
+        std::mem::drop(output);
+        std::mem::drop(metadata);
+        replace_sealed(&temporary, &path);
     }
 
 

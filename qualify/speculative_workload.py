@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
 """Freeze stochastic HTTP inputs and paired execution order for speculation.
 
 The authored fixtures contain recorded conversations, never benchmark-generated

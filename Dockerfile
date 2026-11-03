@@ -1,4 +1,8 @@
 # syntax=docker/dockerfile:1
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2026 Flare community contributors
+# SPDX-License-Identifier: Apache-2.0
+
 
 FROM rust:1.94.1-slim-trixie AS build
 
@@ -41,6 +45,7 @@ RUN apt-get update \
 
 COPY --from=build /out/flare /usr/local/bin/flare
 COPY LICENSE NOTICE /usr/share/doc/flare/
+COPY helios/licenses/PyTorch.txt /usr/share/doc/flare/licenses/PyTorch.txt
 
 USER flare
 WORKDIR /home/flare

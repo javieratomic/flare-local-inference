@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 Flare community contributors
+# SPDX-License-Identifier: Apache-2.0
+
 """Grouped forwards retain ordinary guards and storage-alias checks."""
 
 from types import SimpleNamespace

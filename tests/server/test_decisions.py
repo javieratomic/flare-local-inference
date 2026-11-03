@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 Flare community contributors
+# SPDX-License-Identifier: Apache-2.0
+
 """Decision protocol checks for the hardware test round; requires an idle service.
 
 FLARE_DECISION_TEST_CHECKPOINT enables matched tokenizer/raw-logprob checks.

@@ -65,3 +65,23 @@ fit your machine.
 Start with [model preparation and serving](docs/model-preparation.md).
 See the [CLI guide](docs/cli-design.md) for configuration and the
 [core design](docs/core-design.md) for the architectural reasoning.
+
+## Licensing and contributions
+
+Flare's project code is licensed under [Apache 2.0](LICENSE). Contributions
+require the sign-off described in [CONTRIBUTING.md](CONTRIBUTING.md).
+Third-party attributions are listed in [NOTICE](NOTICE); upstream terms remain
+applicable to third-party code and assets.
+
+The PyTorch-derived image resizing implementation in `helios/` retains the
+[PyTorch BSD-style license](helios/licenses/PyTorch.txt), also distributed with
+[Heliopause](heliopause/licenses/PyTorch.txt). The DeepSeek recipe assets retain
+their [MIT license](ignition/recipes/deepseek41/assets/LICENSE). The
+`heliopause/LICENSE` and `heliopause/NOTICE` symlinks refer to the root files for
+Python package distribution.
+
+Upstream chat templates are fetched with the model checkpoints and annotated
+locally using bundled insertion patches. Gemma uses pinned Google sources.
+The custom Kimi segmented renderer is included as project code. Downloaded
+model assets and exported model packages retain their upstream terms; see
+[frontend preparation](docs/model-development.md#sampling-and-frontend-metadata).

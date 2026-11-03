@@ -1,3 +1,8 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 //! Exercise actual Heliopause W4A16 rank exports through Rust combine/cache.
 //!
 //! The fixture is external and deliberately test-only. It must contain signed

@@ -49,9 +49,19 @@ Performance changes also require [GPU performance work](performance-work.md).
   tokenizer, processor, or model configuration files. Helios consumes prepared
   settings without per-model sampling policy or config-file interpretation.
 
-Gemma 4 exports Google's canonical chat templates for every supported publisher
-and quantization. `ignition/recipes/gemma4/assets/chat_template.google-e2b-e4b.jinja`
-serves E2B/E4B; `chat_template.google.jinja` serves 12B/26B-A4B/31B. The sources are
+Ignition obtains upstream chat templates from the user's downloaded Hugging Face
+checkpoint. Bundled `assets/*.patch.json` files contain only message-mark insertion
+offsets and exact source/result SHA-256 hashes, plus the pinned HF source location.
+They contain no upstream template text. Preparation rejects changed source bytes
+and supplies the annotated text to native export without modifying the checkpoint.
+Step's existing inference transformation removes training-span tags before applying
+its insertion patch. Kimi's custom segmented XTML renderer remains project code;
+its upstream reference is a Python encoder, not a Jinja template.
+
+Gemma 4 fetches Google's canonical chat templates for every supported publisher
+and quantization using the configured hub cache.
+`ignition/recipes/gemma4/assets/chat_template.google-e2b-e4b.patch.json`
+serves E2B/E4B; `chat_template.google.patch.json` serves 12B/26B-A4B/31B. The sources are
 [Google E4B at ee0ef602](https://huggingface.co/google/gemma-4-E4B-it/blob/ee0ef6023621cff504d758262d4e04895a5af4a2/chat_template.jinja)
 and [Google 26B-A4B at 4d7ae498](https://huggingface.co/google/gemma-4-26B-A4B-it/blob/4d7ae4984b7db7de8f8457170b3f1a419ee76d52/chat_template.jinja),
 with message-boundary annotations. Preparation selects by model hidden size:
@@ -60,6 +70,22 @@ append an empty thought channel when thinking is disabled. Publisher-supplied
 templates do not select rendering behavior. Helios normalizes JSON-string tool
 arguments into objects before rendering. Tests compare the assets with the pinned
 Google sources and exercise prompt bytes, reasoning, tool rounds, and cache boundaries.
+
+Frontend tests use externally prepared templates instead of redistributing upstream
+sources as test fixtures. Fetch the pinned files with your Hugging Face access and
+prepare them before running the recipe template tests (no model weights are fetched):
+
+```sh
+python tests/frontend/prepare_templates.py --output /tmp/flare-test-templates
+export FLARE_TEST_TEMPLATE_DIR=/tmp/flare-test-templates
+pytest tests/preparation/test_template_patches.py
+cargo test --manifest-path helios/Cargo.toml --features server --lib frontend::
+cargo test --manifest-path helios/Cargo.toml --features server --test message_boundaries
+```
+
+Use `--hub-cache PATH` for a different HF cache and `--recipe NAME` to prepare
+selected recipes. `FLARE_TEST_TEMPLATE_DIR` is read only by tests. Actual checkpoint
+tokenizer comparisons still require their documented checkpoint assets.
 
 ## Prompt renderers and checkpoint boundaries
 

@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2026 Flare community contributors
+# SPDX-License-Identifier: Apache-2.0
+
 """Direct execution chooses decode rounds exactly as Helios does, on Helios's own recorded choices.
 
 `helios_decode_rounds.txt` holds the rounds Helios's `RequestScheduler` chose for

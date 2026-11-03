@@ -149,7 +149,8 @@ rank. `ReplicaPreparation` keeps these exchanges within each serving TP replica;
 independent kernel candidates retain corresponding-rank sharding across replicas.
 Preparation-time search ends before graph handoff. With `--collective-tuning
 runtime`, the required `--collective-ladder PATH` file supplies final compiled
-geometries for eligible plain BF16 PCIe reductions. These pinned plans do not
+geometries for eligible plain BF16 PCIe reductions and column gathers. Gather
+buckets depend on total per-rank input bytes, independently of row width. These pinned plans do not
 race geometries during preparation, including with `--autotune-effort off`.
 Captured tuning graphs select among the supplied submode/active-CTA profiles
 before serving begins; native rank coordination only launches those graphs and

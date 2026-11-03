@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
 """Version 4/5 ModelIndex physical package fixtures with envelope 6, independent of the native exporter.
 
 Executable payloads use one zstd level-3 frame per resource; Ed25519 signatures bind

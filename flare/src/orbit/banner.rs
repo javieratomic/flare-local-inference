@@ -1,3 +1,8 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026 Flare community contributors
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 //! The orbit banner: the wordmark above Flare's sun, with a body circling it. `flare orbit run`
 //! animates one revolution while it reads the nodes and places the group, then leaves the
 //! final frame above the placement.

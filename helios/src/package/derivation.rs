@@ -1,3 +1,8 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 //! Bounded byte-copy and fill derivations for missing signed payloads.
 //!
 //! A derivation reconstructs one payload whose SHA-256 the signed metadata

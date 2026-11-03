@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 Flare community contributors
+# SPDX-License-Identifier: Apache-2.0
+
 """Pack a prefill chunk's decoder suffix while preserving absolute cache positions.
 
 Decoder SWA bounded replay is an approximation described in section 3.2.2 of

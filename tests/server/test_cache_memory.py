@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
 """Shared physical KV/snapshot backing through native Qwen and GLM services.
 
 Uses FLARE_OFFLOAD_TEST_PACKAGE, all assigned CUDA_VISIBLE_DEVICES, and optional

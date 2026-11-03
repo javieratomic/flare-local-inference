@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
 """MiniMax M3 mixed MXFP8/NVFP4 preparation on four SM120/SM121 GPUs."""
 
 from types import MappingProxyType

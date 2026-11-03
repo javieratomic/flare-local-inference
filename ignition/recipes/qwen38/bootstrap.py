@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2026 Flare community contributors
+# SPDX-License-Identifier: Apache-2.0
+
 """Prepare the complete Qwen graph catalog before starting native serving."""
 
 from __future__ import annotations
@@ -589,7 +593,7 @@ def _prepare_model(snapshot: Path, config: PreparationConfig | None = None, *, t
                        for name, (filename, digest) in hashes.items()}}
         server_config["assets"]["chat_template"] = annotated_template_asset(
             (manifest.snapshot / "chat_template.jinja").read_bytes(),
-            Path(__file__).with_name("assets") / "chat_template.jinja")
+            Path(__file__).with_name("assets") / "chat_template.patch.json")
         if speculation is not None:
             server_config.update(speculative_widths=config.speculative_widths,
             speculative_token_capacity=speculative_token_capacity(config.max_active, max(config.speculative_widths), config.speculative_token_capacity),

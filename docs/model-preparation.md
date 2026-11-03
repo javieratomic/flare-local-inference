@@ -884,7 +884,7 @@ The draft consumes AttnRes mixtures entering target layers 24, 48, 72, 88,
 and 92, before input normalization. Its five causal Qwen3 layers use
 2,048-token BF16 key/value windows. An anchor followed by mask tokens produces
 seven proposals; each preceding proposal conditions the Markov bias.
-Ignition uses greedy proposals and adaptive target verification widths,
+Ignition samples proposals and uses adaptive target verification widths,
 without the draft's confidence head. The
 [Red Hat model card](https://huggingface.co/RedHatAI/Kimi-K3-speculator.dspark)
 reports eight-token probabilistic proposals with block rejection sampling,
@@ -929,8 +929,8 @@ preserve draft context. `--speculative-token-capacity` and
 `--speculative-graph-budget` control the same shared catalog geometry described
 under DeepSeek V4.1.
 
-The annotated template in `ignition/recipes/minimax_m3/assets/chat_template.jinja`
-preserves the pinned upstream template byte for byte after removing message
+Ignition applies `ignition/recipes/minimax_m3/assets/chat_template.patch.json`
+to the downloaded checkpoint template. The annotated result preserves the pinned upstream template byte for byte after removing message
 marks. It retains the upstream adaptive-thinking behavior and XML tool syntax.
 Vision preparation includes temporal patch duplication and spatial patch
 merging; `--language-model-only` omits the vision encoder. Optional
@@ -1002,8 +1002,8 @@ Running `uv sync --locked --extra prepare --extra test` restores the pinned Git
 dependency, so repeat the editable installation afterward when preparing Muse
 Spark. The local checkout must provide both the `flashinfer` and `b12x` imports.
 
-The annotated template in `ignition/recipes/muse_spark/assets/chat_template.jinja`
-preserves the canonical checkpoint bytes when message marks are removed.
+Ignition applies `ignition/recipes/muse_spark/assets/chat_template.patch.json`
+to the downloaded checkpoint template. The annotated result preserves the canonical checkpoint bytes when message marks are removed.
 Native recipient headers route `self` messages to reasoning, `commentary` and
 `user` messages to visible content, and tool recipients through ATEM function
 calls. `<|eom|>` separates messages within a generated turn; `<|eot|>` and

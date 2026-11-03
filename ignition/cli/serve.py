@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2026 Flare community contributors
+# SPDX-License-Identifier: Apache-2.0
+
 """Prepare one checkpoint for native serving or runtime-package export."""
 
 import ipaddress
@@ -469,6 +473,7 @@ def debug_serve(args) -> int:
         local = plan.gpus
     environment.apply(configuration, local, plan.recipe.b12x_environment)
     options = _server_options(configuration, model, plan)
+    options["thinking_token_budget"] = configuration.get("server.thinking_token_budget").value
     print(json.dumps({"plan": plan.to_dict()}), file=sys.stderr, flush=True)
     if args.history_drafts is not None:
         if args.history_drafts and (plan.speculation is None or plan.speculation.draft_tokens == 0):

@@ -7,7 +7,7 @@ name = "ignition"
 version = "0.1.0"
 description = "Python model preparation for the Helios CUDA graph serving core"
 license = "Apache-2.0"
-license-files = ["LICENSE", "NOTICE"]
+license-files = ["LICENSE", "NOTICE", "helios/licenses/PyTorch.txt", "ignition/recipes/deepseek41/assets/LICENSE"]
 requires-python = ">=3.12,<3.13"
 dependencies = []
 

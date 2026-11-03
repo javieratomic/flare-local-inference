@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
 """Vision graph storage shares caller-owned pools across serialized capacities."""
 
 from dataclasses import fields, is_dataclass

@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 Flare community contributors
+# SPDX-License-Identifier: Apache-2.0
+
 """Device storage every rank of an exchange group can read through CUDA IPC."""
 
 from contextlib import suppress

@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
 """Joint catalog coverage and dense native-to-role packing for mixed Qwen graphs."""
 
 from types import SimpleNamespace

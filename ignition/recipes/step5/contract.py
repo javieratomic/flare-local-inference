@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
 """ChatML frontend, image crops, paged GQA and compressed region summaries."""
 
 from ignition.preparation import contract as c

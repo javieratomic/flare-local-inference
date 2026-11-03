@@ -1,3 +1,8 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 //! Publisher signatures and independently compressed executable resources.
 use pyo3::{exceptions::PyValueError, prelude::*};
 use super::{ExportResult as Result, invalid, wire};

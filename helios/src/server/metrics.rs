@@ -1,3 +1,9 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2026 Flare community contributors
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 use std::{
     fmt::Write,
     sync::atomic::{AtomicU64, Ordering},
@@ -84,6 +90,8 @@ pub struct Snapshot {
     pub pending: u64,
     /// Requests whose generation completed successfully.
     pub completed: u64,
+    /// Requests whose reasoning was closed by their hard token budget.
+    pub reasoning_budget_cuts: u64,
     /// Requests failed by admission, execution, grammar, or output backpressure.
     pub failed: u64,
     /// Sum of maximum rank-local CUDA intervals of completed graphs, including readiness waits.
@@ -217,6 +225,7 @@ pub(super) struct Metrics {
     pub admitted: AtomicU64,
     pub http_requests: [AtomicU64; 5],
     pub completed: AtomicU64,
+    pub reasoning_budget_cuts: AtomicU64,
     pub cancelled: AtomicU64,
     pub failed: AtomicU64,
     replay_gpu_ns: AtomicU64,
@@ -255,7 +264,7 @@ pub(super) struct Metrics {
     host_lookup_outcomes: [AtomicU64; 5],
     host_store_reasons: [AtomicU64; 6],
     pub(super) host_retry_success: AtomicU64,
-    pub(super) host_retry_abandoned: AtomicU64,
+    pub(super) host_retry_abandoned: [AtomicU64; 6],
     host_cost_sums: [AtomicU64; 3],
     host_missing_tokens: [AtomicU64; 8],
     host_transfer_ns: [AtomicU64; 8],
@@ -263,6 +272,12 @@ pub(super) struct Metrics {
     host_store_skipped: AtomicU64,
     host_store_failed: AtomicU64,
     host_held: [AtomicU64; 2],
+    host_expired: [AtomicU64; 2],
+    host_rows_thinned: [AtomicU64; 2],
+    host_packed_records: [AtomicU64; 2],
+    host_per_rank_records: [AtomicU64; 2],
+    host_abandoned_stores: AtomicU64,
+    host_slots: [AtomicU64; 3],
     host_dropped: [AtomicU64; 6],
     host_parked: AtomicU64,
     host_fetched: AtomicU64,
@@ -319,6 +334,7 @@ impl Metrics {
             active: self.active_requests.load(Ordering::Relaxed),
             pending: self.pending.load(Ordering::Relaxed),
             completed: self.completed.load(Ordering::Relaxed),
+            reasoning_budget_cuts: self.reasoning_budget_cuts.load(Ordering::Relaxed),
             failed: self.failed.load(Ordering::Relaxed),
             replay_gpu_ns: self.replay_gpu_ns.load(Ordering::Relaxed),
             replay_readiness_wait_ns: self.replay_readiness_wait_ns.load(Ordering::Relaxed),
@@ -466,14 +482,11 @@ impl Metrics {
     }
 
     pub(super) fn host_store_outcome(&self, outcome: flare_selene::StoreOutcome) {
-        use flare_selene::{StoreOutcome, StoreReason};
+        use flare_selene::StoreOutcome;
         let reason = match outcome {
             StoreOutcome::Queued => return,
             StoreOutcome::Present => 0,
-            StoreOutcome::Retry(StoreReason::Inflight) => 1,
-            StoreOutcome::Retry(StoreReason::Slabs) => 2,
-            StoreOutcome::Retry(StoreReason::Queue) => 3,
-            StoreOutcome::Retry(StoreReason::Budget) => 4,
+            StoreOutcome::Retry(reason) => reason as usize + 1,
             StoreOutcome::Oversize => 5,
         };
         self.host_store_reasons[reason].fetch_add(1, Ordering::Relaxed);
@@ -511,12 +524,26 @@ impl Metrics {
             .host_held
             .iter()
             .chain(&self.host_dropped)
-            .zip(stats.held.into_iter().chain(stats.dropped))
+            .chain(&self.host_expired)
+            .chain(&self.host_rows_thinned)
+            .chain(&self.host_packed_records)
+            .chain(&self.host_per_rank_records)
+            .zip(
+                stats
+                    .held
+                    .into_iter()
+                    .chain(stats.dropped)
+                    .chain(stats.expired)
+                    .chain(stats.rows_thinned)
+                    .chain(stats.packed_records)
+                    .chain(stats.per_rank_records),
+            )
         {
             counter.store(value, Ordering::Relaxed);
         }
         for (target, value) in [
             (&self.host_stored, stats.stored),
+            (&self.host_abandoned_stores, stats.abandoned_stores),
             (&self.host_row_refills, stats.row_refills),
             (&self.host_store_skipped, stats.store_skipped),
             (&self.host_store_failed, stats.store_failed),
@@ -531,6 +558,9 @@ impl Metrics {
             ),
             (&self.host_inbound_in_flight, stats.inbound_in_flight as u64),
             (&self.host_memory_records, stats.memory_records as u64),
+            (&self.host_slots[0], stats.slots_used as u64),
+            (&self.host_slots[1], stats.slots_total as u64),
+            (&self.host_slots[2], stats.intake_slots as u64),
             (&self.host_memory_bytes, stats.memory_bytes),
             (&self.host_disk_records, stats.disk_records as u64),
             (&self.host_disk_bytes, stats.disk_bytes),
@@ -547,7 +577,35 @@ impl Metrics {
     pub fn render(&self) -> String {
         let mut text = String::with_capacity(4096);
         text.push_str("# HELP flare_host_cache_held_total Records held because the next tier could not accept them.\n# TYPE flare_host_cache_held_total counter\n# HELP flare_host_cache_dropped_total Host records dropped at the local end or through oversize or I/O errors.\n# TYPE flare_host_cache_dropped_total counter\n");
+        text.push_str("# TYPE flare_host_cache_expired_total counter\n");
+        text.push_str("# HELP flare_host_cache_rows_thinned_total Rows eagerly dropped after a child commits.\n# TYPE flare_host_cache_rows_thinned_total counter\n");
+        text.push_str("# HELP flare_host_cache_packed_records_total Records stored with identical rank bytes packed once.\n# TYPE flare_host_cache_packed_records_total counter\n# HELP flare_host_cache_per_rank_records_total Records stored with separate rank bytes.\n# TYPE flare_host_cache_per_rank_records_total counter\n# HELP flare_host_cache_abandoned_stores_total Stores abandoned after later rank bytes differed.\n# TYPE flare_host_cache_abandoned_stores_total counter\n");
+        let _ = writeln!(
+            text,
+            "flare_host_cache_abandoned_stores_total {}",
+            self.host_abandoned_stores.load(Ordering::Relaxed)
+        );
         for (i, tier) in ["dram", "nvme"].into_iter().enumerate() {
+            for (name, counters) in [
+                ("packed_records", &self.host_packed_records),
+                ("per_rank_records", &self.host_per_rank_records),
+            ] {
+                let _ = writeln!(
+                    text,
+                    "flare_host_cache_{name}_total{{tier=\"{tier}\"}} {}",
+                    counters[i].load(Ordering::Relaxed)
+                );
+            }
+            let _ = writeln!(
+                text,
+                "flare_host_cache_rows_thinned_total{{tier=\"{tier}\"}} {}",
+                self.host_rows_thinned[i].load(Ordering::Relaxed)
+            );
+            let _ = writeln!(
+                text,
+                "flare_host_cache_expired_total{{tier=\"{tier}\"}} {}",
+                self.host_expired[i].load(Ordering::Relaxed)
+            );
             let _ = writeln!(
                 text,
                 "flare_host_cache_held_total{{tier=\"{tier}\"}} {}",
@@ -565,6 +623,13 @@ impl Metrics {
             }
         }
         for (name, labels, counters) in [
+            (
+                "host_cache_retry_abandoned_total",
+                &[
+                    "inflight", "slabs", "queue", "budget", "oversize", "io_error",
+                ][..],
+                &self.host_retry_abandoned[..],
+            ),
             (
                 "host_cache_lookup_outcomes_total",
                 &[
@@ -749,7 +814,7 @@ impl Metrics {
             ),
             (
                 "generated_tokens_total",
-                "Committed generated tokens, including EOS and tokens subsequently withheld by text stops.",
+                "Committed generated tokens, including host-forced tokens, EOS and tokens subsequently withheld by text stops.",
                 &self.generated_tokens,
             ),
             (
@@ -781,6 +846,11 @@ impl Metrics {
                 "requests_completed_total",
                 "Requests whose model generation completed successfully, including explicit token stops.",
                 &self.completed,
+            ),
+            (
+                "reasoning_budget_cuts_total",
+                "Requests whose reasoning was closed by their hard token budget.",
+                &self.reasoning_budget_cuts,
             ),
             (
                 "requests_cancelled_total",
@@ -861,11 +931,6 @@ impl Metrics {
                 "host_cache_retry_success_total",
                 "Deferred publications admitted or found present after resource progress.",
                 &self.host_retry_success,
-            ),
-            (
-                "host_cache_retry_abandoned_total",
-                "Deferred publications abandoned after eviction or permanent refusal.",
-                &self.host_retry_abandoned,
             ),
             (
                 "host_cache_stored_total",
@@ -1014,6 +1079,21 @@ impl Metrics {
                 "host_cache_inbound_waiting",
                 "Admitted requests waiting for a host store restore.",
                 &self.host_inbound_waiting,
+            ),
+            (
+                "host_cache_slots_in_use",
+                "Allocated host checkpoint and intake slots.",
+                &self.host_slots[0],
+            ),
+            (
+                "host_cache_slots_total",
+                "Host checkpoint slot capacity, including intake.",
+                &self.host_slots[1],
+            ),
+            (
+                "host_cache_intake_slots",
+                "Slots reserved for automatic host checkpoint intake.",
+                &self.host_slots[2],
             ),
             (
                 "host_cache_memory_records",
@@ -1385,6 +1465,14 @@ mod tests {
             bytes_out: 1 << 20,
             memory_records: 3,
             parked_records: 2,
+            slots_used: 3,
+            slots_total: 8,
+            intake_slots: 2,
+            expired: [7, 9],
+            rows_thinned: [5, 6],
+            packed_records: [7, 8],
+            per_rank_records: [9, 10],
+            abandoned_stores: 11,
             held: [3, 4],
             dropped: [1, 2, 3, 4, 5, 6],
             outbound_rate: 2.5e9,
@@ -1399,6 +1487,9 @@ mod tests {
             ("free_kv_tokens", 1280),
             ("cached_kv_pages", 3),
             ("cached_kv_tokens", 384),
+            ("host_cache_slots_in_use", 3),
+            ("host_cache_slots_total", 8),
+            ("host_cache_intake_slots", 2),
         ] {
             assert!(text.contains(&format!("# TYPE flare_{name} gauge\n")));
             assert!(text.contains(&format!("\nflare_{name} {value}\n")));
@@ -1409,6 +1500,22 @@ mod tests {
         assert!(text.contains("flare_host_cache_inbound_waiting 1\n"));
         assert!(text.contains("flare_host_cache_bytes_out_total 1048576\n"));
         assert!(text.contains("flare_host_cache_memory_records 3\n"));
+        assert!(text.contains("flare_host_cache_expired_total{tier=\"dram\"} 7\n"));
+        assert!(text.contains("flare_host_cache_expired_total{tier=\"nvme\"} 9\n"));
+        assert!(text.contains("flare_host_cache_packed_records_total{tier=\"dram\"} 7\n"));
+        assert!(text.contains("flare_host_cache_packed_records_total{tier=\"nvme\"} 8\n"));
+        assert!(text.contains("flare_host_cache_per_rank_records_total{tier=\"dram\"} 9\n"));
+        assert!(text.contains("flare_host_cache_per_rank_records_total{tier=\"nvme\"} 10\n"));
+        assert!(text.contains("flare_host_cache_abandoned_stores_total 11\n"));
+        assert!(text.contains("flare_host_cache_rows_thinned_total{tier=\"dram\"} 5\n"));
+        assert!(text.contains("flare_host_cache_rows_thinned_total{tier=\"nvme\"} 6\n"));
+        for reason in [
+            "inflight", "slabs", "queue", "budget", "oversize", "io_error",
+        ] {
+            assert!(text.contains(&format!(
+                "flare_host_cache_retry_abandoned_total{{reason=\"{reason}\"}} 0\n"
+            )));
+        }
         assert!(text.contains("# TYPE flare_host_cache_parked_records gauge\n"));
         assert!(text.contains("flare_host_cache_parked_records 2\n"));
         for (i, tier) in ["dram", "nvme"].into_iter().enumerate() {

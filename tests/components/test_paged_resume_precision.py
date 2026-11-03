@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 Flare community contributors
+# SPDX-License-Identifier: Apache-2.0
+
 """Cached-prefix vocabulary projection preserves its requested logit precision."""
 
 from types import SimpleNamespace

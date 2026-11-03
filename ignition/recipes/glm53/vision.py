@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 Flare community contributors
+# SPDX-License-Identifier: Apache-2.0
+
 """Captured GLM vision tower with canonical blocks and prepared projections."""
 
 from __future__ import annotations

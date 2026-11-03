@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 Flare community contributors
+# SPDX-License-Identifier: Apache-2.0
+
 """Kimi K3 single-kernel SiTU, RMSNorm and gating steps between projections.
 
 Each kernel replaces a chain of small eager and generated kernels with one launch while keeping the

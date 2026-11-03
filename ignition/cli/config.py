@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2026 Flare community contributors
+# SPDX-License-Identifier: Apache-2.0
+
 """The configuration file: its schema, built-in values, and precedence under flags.
 
 A flag overrides the configuration file, which overrides the recipe. Every
@@ -15,12 +19,12 @@ DEFAULT_PATH = Path("~/.config/flare/config.toml")
 
 _SECTIONS = {
     "publishing": {"signing_key": str, "namespace": str, "official_source": str},
-    "server": {"host": str, "port": int, "api_key": str},
+    "server": {"host": str, "port": int, "api_key": str, "thinking_token_budget": int},
     "defaults": {"model": str, "max_concurrency": int, "image_concurrency": int,
                  "speculative_token_capacity": int, "speculative_graph_budget": int},
     "memory": {"reserve": str},
     "preparation": {"compile_workers": int, "compile_headroom": str, "autotune_effort": str, "collective_tuning": str, "checkpoint_token_file": str},
-    "prefix_cache": {"memory": str, "disk_limit": str, "drain_on_shutdown": str},
+    "prefix_cache": {"memory": str, "disk_limit": str, "drain_on_shutdown": str, "max_age": str},
     "paths": {"hub_cache": str, "kernel_cache": str, "package_cache": str, "export_staging": str,
               "prefix_cache": str, "cuda": str},
 }
@@ -29,13 +33,14 @@ _MODEL_KEYS = {"max_concurrency": int, "image_concurrency": int,
 # Empty prefix-cache values leave the decision to Flare, which derives them from the host.
 _BUILT_IN = {
     "server.host": "127.0.0.1", "server.port": 8000, "server.api_key": "",
+    "server.thinking_token_budget": None,
     "memory.reserve": "0",
     "preparation.compile_workers": 0,
     "preparation.compile_headroom": "8G",
     "preparation.autotune_effort": "default",
     "preparation.collective_tuning": None,
     "preparation.checkpoint_token_file": "~/.config/flare/agent.token",
-    "prefix_cache.memory": "", "prefix_cache.disk_limit": "", "prefix_cache.drain_on_shutdown": "",
+    "prefix_cache.memory": "", "prefix_cache.disk_limit": "", "prefix_cache.drain_on_shutdown": "", "prefix_cache.max_age": "off",
     "paths.hub_cache": "~/.cache/huggingface/hub", "paths.kernel_cache": "~/.cache/flare/kernels",
     "paths.package_cache": "~/.cache/flare/packages",
     "paths.export_staging": "",
@@ -102,9 +107,9 @@ class Configuration:
                 raise UsageError(f"{path}: unknown key {key} in [{section}]")
             if type(value) is not schema[key]:
                 raise UsageError(f"{path}: {key} in [{section}] must be {schema[key].__name__}")
-            if key == "drain_on_shutdown":
+            if key in ("drain_on_shutdown", "max_age"):
                 text = value.strip()
-                if text in ("", "on", "off", "0"):
+                if text in (("", "on", "off", "0") if key == "drain_on_shutdown" else ("", "off")):
                     continue
                 match = re.fullmatch(r"([0-9.eE+\-]+)(ms|s|m|h)?", text)
                 try:
@@ -112,13 +117,15 @@ class Configuration:
                 except ValueError:
                     seconds = 0
                 if not 0.5e-9 < seconds < 2**63:
-                    raise UsageError(f'prefix_cache drain_on_shutdown {text!r} must be on, off, or a positive duration such as 90s or 2m')
+                    raise UsageError(f'prefix_cache {key} {text!r} must be {"on, " if key == "drain_on_shutdown" else ""}off, or a positive duration such as 90s or 2m')
             if key == "autotune_effort" and value not in AUTOTUNE_EFFORTS:
                 raise UsageError(f"{path}: autotune_effort must be one of {', '.join(AUTOTUNE_EFFORTS)}")
             if key == "collective_tuning" and value not in ("static", "runtime"):
                 raise UsageError(f"{path}: collective_tuning must be static or runtime")
             if key == "port" and not 1 <= value <= 65535:
                 raise UsageError(f"{path}: port in [{section}] must be 1 through 65535")
+            if key == "thinking_token_budget" and not 1 <= value <= 2**32 - 1:
+                raise UsageError(f"{path}: thinking_token_budget in [{section}] must be a positive 32-bit integer")
             if key in ("max_concurrency", "image_concurrency", "speculative_token_capacity",
                        "speculative_graph_budget", "compile_workers") and value < 1:
                 raise UsageError(f"{path}: {key} in [{section}] must be at least 1")
@@ -166,6 +173,7 @@ class Configuration:
             f'# host = "{self.get("server.host").value}"',
             f'# port = {self.get("server.port").value}',
             '# api_key = ""                    # empty: no authentication',
+            '# thinking_token_budget = 1536    # omitted: no default reasoning cap',
             "", "[defaults]",
             f'# model = "{model}"',
             f"# max_concurrency = {max_concurrency}",

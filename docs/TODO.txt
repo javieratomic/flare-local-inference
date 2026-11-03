@@ -155,3 +155,7 @@
 [ ] Validate native debug-serve asset descriptors for Step-5, MiniMax M3,
     MiMo V2, Qwen3.8 dense, and DeepSeek V4.1. Their tokenizer descriptors omit
     sha256 before PreparedModel.start_server; launches remain untested.
+
+[ ] Reduce the host-bridge cost of the 512-thread selected barrier gather for
+    512-byte rows at 1 MiB per rank: 20.1% above the best measured geometry.
+    Raw width comparisons: ~/benchmarks/gather-byte-ladder/width-*.jsonl.

@@ -1,4 +1,13 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2026 Flare community contributors
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 #![cfg(feature = "server")]
+
+#[path = "support/templates.rs"]
+mod template_fixtures;
 
 use flare_helios::{
     frontend::{Asset, Frontend, FrontendAssets, TemplateEncoding},
@@ -151,8 +160,8 @@ fn every_role_transition_and_empty_message_has_a_boundary() {
 fn gemma_templates_preserve_size_specific_thinking_prefixes() {
     let messages = [json!({"role":"user","content":"Hi"})];
     for (template, empty_thought) in [
-        (include_str!("../../ignition/recipes/gemma4/assets/chat_template.google.jinja"), true),
-        (include_str!("../../ignition/recipes/gemma4/assets/chat_template.google-e2b-e4b.jinja"), false),
+        (&template_fixtures::template("gemma4", "chat_template.google")[..], true),
+        (&template_fixtures::template("gemma4", "chat_template.google-e2b-e4b")[..], false),
     ] {
         let frontend = frontend(template, TemplateEncoding::Text);
         for thinking in [false, true] {
@@ -182,8 +191,8 @@ fn gemma_templates_preserve_reasoning_and_assistant_continuations() {
         {"role":"assistant","content":"B"}
     ]);
     for template in [
-        include_str!("../../ignition/recipes/gemma4/assets/chat_template.google.jinja"),
-        include_str!("../../ignition/recipes/gemma4/assets/chat_template.google-e2b-e4b.jinja"),
+        &template_fixtures::template("gemma4", "chat_template.google")[..],
+        &template_fixtures::template("gemma4", "chat_template.google-e2b-e4b")[..],
     ] {
         let frontend = frontend(template, TemplateEncoding::Text);
         let rendered = frontend.render_chat(messages.as_array().unwrap(), &Map::new()).unwrap();
@@ -220,8 +229,8 @@ fn gemma_templates_checkpoint_preamble_messages_and_tool_rounds() {
         .clone()
     };
     for template in [
-        include_str!("../../ignition/recipes/gemma4/assets/chat_template.google.jinja"),
-        include_str!("../../ignition/recipes/gemma4/assets/chat_template.google-e2b-e4b.jinja"),
+        &template_fixtures::template("gemma4", "chat_template.google")[..],
+        &template_fixtures::template("gemma4", "chat_template.google-e2b-e4b")[..],
     ] {
         let frontend = frontend(template, TemplateEncoding::Text);
         for thinking in [false, true] {

@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
 """Allocate a fixed token budget among causal speculative prefixes.
 
 Each submitted row starts with its pending token. Further tokens are admitted

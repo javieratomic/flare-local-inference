@@ -1,3 +1,9 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2026 Flare community contributors
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 //! Coordinated CUDA ranks sharing one process address space.
 
 use super::{ExecutionManifest, FrameCompletion, GraphExecutor, OwnedUpload, Upload};

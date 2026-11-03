@@ -1,4 +1,7 @@
-"""Final compiled geometries and runtime profiles for plain PCIe reductions."""
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+"""Final compiled geometries and runtime profiles for PCIe reductions and column gathers."""
 
 import json
 from pathlib import Path
@@ -9,6 +12,59 @@ MODES = {
     "joint_latency": ("full", "payload_rsag", "pull"),
     "joint_bandwidth": ("payload_rsag", "bulk_push", "bulk_pull", "pull"),
 }
+GATHER_MODES = {
+    "gather_joint": ("barrier", "word_exchange"),
+    "gather_selected_barrier": ("barrier",),
+    "gather_selected_word_exchange": ("word_exchange",),
+}
+
+
+def _validate_gathers(layout, world_size):
+    def require(condition, message):
+        if not condition:
+            raise UsageError(f"collective ladder all-gather: {message}")
+
+    if layout is None:
+        return
+    require(world_size in (2, 4, 8, 10), "unsupported gather TP size")
+    require(isinstance(layout, dict) and set(layout) == {"min_bytes", "buckets"},
+            "expected min_bytes and buckets")
+    lower = layout["min_bytes"]
+    require(type(lower) is int and lower >= 16 and lower % 16 == 0, "invalid min_bytes")
+    require(isinstance(layout["buckets"], list) and bool(layout["buckets"]), "buckets must be nonempty")
+    previous = lower - 16
+    for row in layout["buckets"]:
+        require(isinstance(row, dict) and set(row) == {"max_bytes", "implementation", "threads", "blocks", "profiles"},
+                "invalid bucket fields")
+        upper = row["max_bytes"]
+        require(type(upper) is int and upper > previous and upper % 16 == 0,
+                "bucket boundaries must increase and be 16-byte aligned")
+        previous = upper
+        family = row["implementation"]
+        require(isinstance(family, str) and family in GATHER_MODES, "unknown gather kernel")
+        require(type(row["threads"]) is int and row["threads"] in (32, 64, 128, 256, 512), "invalid threads")
+        require(type(row["blocks"]) is int and 1 <= row["blocks"] <= 64, "invalid physical grid")
+        if family != "gather_selected_barrier":
+            require(world_size in (2, 4) and upper <= 16384, "word exchange requires TP2/TP4 and at most 16 KiB")
+        if family == "gather_selected_word_exchange":
+            require(row["threads"] <= 256, "word exchange supports at most 256 threads")
+        require(isinstance(row["profiles"], dict) and bool(row["profiles"]), "profiles must be nonempty")
+        for mode, counts in row["profiles"].items():
+            require(mode in GATHER_MODES[family], "mode does not belong to gather kernel")
+            require(isinstance(counts, list) and bool(counts)
+                    and all(type(v) is int and 1 <= v <= row["blocks"] for v in counts), "invalid active CTA counts")
+            require(len(set(counts)) == len(counts), "duplicate active CTA counts")
+
+
+def select_gather(data, size_bytes, *, world_size, capability):
+    """Select an inclusive per-rank byte bucket independently of row geometry."""
+    if world_size != data["world_size"] or tuple(capability) != tuple(data["compute_capability"]):
+        raise UsageError("collective ladder does not match the gather's TP size or compute capability")
+    ladder = data["all_gather"]
+    if (ladder is None or type(size_bytes) is not int or size_bytes % 16
+            or not ladder["min_bytes"] <= size_bytes <= ladder["buckets"][-1]["max_bytes"]):
+        raise UsageError(f"collective ladder has no all-gather bucket for {size_bytes} bytes")
+    return next(row for row in ladder["buckets"] if size_bytes <= row["max_bytes"])
 
 
 def validate(data):
@@ -19,8 +75,8 @@ def validate(data):
 
     require(isinstance(data, dict), "expected an object")
     require(set(data) == {"version", "name", "compute_capability", "world_size", "dtype",
-                          "inplace", "cache_policy", "min_bytes", "buckets"}, "invalid fields")
-    require(type(data["version"]) is int and data["version"] == 1, "unsupported version")
+                          "inplace", "cache_policy", "min_bytes", "buckets", "all_gather"}, "invalid fields")
+    require(type(data["version"]) is int and data["version"] == 2, "unsupported version")
     require(isinstance(data["name"], str) and bool(data["name"]), "name must be nonempty")
     require(isinstance(data["compute_capability"], list) and len(data["compute_capability"]) == 2
             and all(type(v) is int and v >= 0 for v in data["compute_capability"]), "invalid compute capability")
@@ -48,6 +104,7 @@ def validate(data):
             require(isinstance(counts, list) and bool(counts)
                     and all(type(v) is int and 1 <= v <= row["blocks"] for v in counts), "invalid active CTA counts")
             require(len(set(counts)) == len(counts), "duplicate active CTA counts")
+    _validate_gathers(data["all_gather"], data["world_size"])
     return data
 
 

@@ -18,11 +18,11 @@ including configuration-file and recipe defaults. Static policy rejects the
 option. File contents travel with the preparation plan and package rebuild
 settings; workers do not reopen the path.
 
-## Version 1 format
+## Version 2 format
 
 ```json
 {
-  "version": 1,
+  "version": 2,
   "name": "example_tp4",
   "compute_capability": [12, 0],
   "world_size": 4,
@@ -33,7 +33,13 @@ settings; workers do not reopen the path.
   "buckets": [
     {"max_bytes": 1048576, "implementation": "joint_bandwidth", "threads": 512, "blocks": 64,
      "profiles": {"bulk_push": [32], "bulk_pull": [8]}}
-  ]
+  ],
+  "all_gather": {
+    "min_bytes": 128, "buckets": [
+      {"max_bytes": 1024, "implementation": "gather_joint", "threads": 32, "blocks": 4,
+       "profiles": {"word_exchange": [4]}}
+    ]
+  }
 }
 ```
 
@@ -53,6 +59,23 @@ The ladder applies to eligible plain BF16 PCIe reductions. TP size, compute
 capability, and input/output aliasing must match. Other collective transports
 and fused operations retain their preparation policy. Runtime profile selection
 cannot change the compiled family, threads, or physical grid.
+
+`all_gather` contains one ladder keyed by total per-rank input bytes. Row width
+does not select a bucket; it remains part of the compiled kernel's addressing
+geometry. Gather modes are
+`barrier` and `word_exchange`; `gather_joint` permits both,
+`gather_selected_barrier` permits only barrier, and
+`gather_selected_word_exchange` permits only word exchange. Word exchange is
+limited to TP2/TP4 and at most 16 KiB per rank. Gathers require disjoint
+input/output storage; the top-level `inplace` field applies only to reductions.
+An explicit `null` is valid for a reduction-only ladder. Version 1 files
+must be updated to version 2 with an explicit `all_gather` field.
+
+Ignition applies this ladder to contiguous, disjoint PCIe column gathers,
+including BF16, FP32 bit views, and E4M3 payloads. Captured startup producers
+validate exact payload bytes and select among the supplied profiles. Gathers
+with equal byte sizes use the same recommendations regardless of row width.
+RoCE gathers and reduction-only ladders retain their preparation policy.
 
 ## GB202 PCIe TP4 recommendations
 
@@ -91,3 +114,64 @@ require that kernel implementation; the JSON file only selects geometry and
 runtime profiles. Frank2 measurements use division-based ownership. The combined
 menus have not had independent replay verification, and bucket interiors and
 unmeasured topologies have no measured performance bound.
+
+## Column all-gather recommendations
+
+The `all_gather` ladder contains 207 byte-size buckets, from
+128 bytes through 8 MiB per rank. The dense measurements use 128-byte local rows,
+cold caches, an 8 MiB channel
+capacity, and rank-maximum GPU timings on Pulsar: GPUs 0,1,2,4 share a switch;
+GPUs 0,5,7,10 communicate across host bridges. Each measured candidate has at
+least 102 timings. Bucket spacing is 16 intervals per doubling, aligned to
+complete rows.
+
+| Per-rank input | Kernel | Threads | Physical CTAs |
+|---|---|---:|---:|
+| 128 B–1 KiB | Joint | 32 | 4 |
+| >1–2 KiB | Joint | 256 | 8 |
+| >2–4 KiB | Joint | 256 | 16 |
+| >4–8 KiB | Joint | 256 | 32 |
+| >8–16 KiB | Joint | 256 | Bucket maximum divided by 256, rounded up |
+| >16 KiB–8 MiB | Barrier | 512 | 64 |
+
+Each bucket retains at most five runtime profiles, covering protocol and active
+CTA choices across row widths and topologies. Equal-sized gathers use the same
+menu; the captured runtime race evaluates it on the actual row geometry.
+Word exchange uses one warp
+per CTA. Wide CTAs prefetch the selector, packet counter, and input words with
+predicated bounds checks before dispatch; this avoids reconvergence overhead
+on the switched path. Barrier mode uses all threads.
+
+For the dense 128-byte-row sweep, no switched bucket has a measured regression
+against the separate-kernel references. At 896 bytes, repeated host
+comparisons range from 5.49% (6.144 versus 5.824 microseconds) to 8.10%
+(6.192 versus 5.728 microseconds). Above 1 KiB, the worst host regression is
+5.79% near 1.48 MiB.
+An equal-byte comparison covers local row widths of 128, 512, 2048, and 8192
+bytes at 4, 8, 16, 32, 64, 256, and 1024 KiB per rank, omitting rows larger than
+the payload. GPUs 0,1,2,4 share a switch; GPUs 0,5,8,13 occupy four separate
+switches. All 54 cases use at least 102 timings per candidate. The installed
+menus retain the 32/256/512-thread progression and add low-CTA barrier profiles
+needed by wider rows on host bridges.
+
+| Per-rank bytes | Worst switched regret | Worst host-bridge regret |
+|---|---:|---:|
+| 4 KiB | 0.84% | 3.33% |
+| 8 KiB | 3.60% | 3.99% |
+| 16 KiB | 1.17% | 4.16% |
+| 32 KiB | 2.84% | 5.66% |
+| 64 KiB | 2.17% | 6.43% |
+| 256 KiB | 0.15% | 13.15% |
+| 1 MiB | 0.00% | 20.11% |
+
+Regret compares the fastest measured profile in the installed menu with the
+fastest measured configuration for that exact layout and topology, including
+static kernels. Independent switched repeats put the 8 KiB joint choice within
+0.7–2.2% and the 32 KiB barrier choice within 0.5–3.3% of the best measured
+configuration. The 1 MiB host penalty occurs with 512-byte rows: the shared
+512-thread geometry is slower than the 128-thread alternative. Row widths
+remain kernel addressing parameters, never ladder lookup keys.
+
+These are component CUDA-graph measurements, not model throughput, guarantees
+that startup selects the measured fastest profile, or bounds for bucket
+interiors, unmeasured row widths, or other machines.

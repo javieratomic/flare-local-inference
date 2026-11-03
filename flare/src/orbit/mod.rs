@@ -1,3 +1,9 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2026 Flare community contributors
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 //! Orbit: resident agents on every host of a tensor-parallel group, and the controller
 //! commands that pair with them, move executables and packages, and run, attach to and stop
 //! groups from any machine. See docs/orbit.md.

@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2026 Flare community contributors
+# SPDX-License-Identifier: Apache-2.0
+
 """Kimi K3 DSpark: accepted-state context, sliding-window Qwen3 proposals and the Markov transition.
 
 Accepted target positions project their auxiliary AttnRes states once into every draft layer's key
@@ -245,10 +249,10 @@ class DraftMLP(torch.nn.Module):
 
 
 class PreparedDraft:
-    """The draft decoder; with ``local_head`` its head projects this rank's vocabulary shard only."""
+    """Project and gather draft logits for sampled proposals."""
 
     def __init__(self, weights, scratch, metadata, pool, *, block, runtime, vocabulary_runtime, embedding_runtime,
-                 coordinator, session, name, workspace, local_head=False):
+                 coordinator, session, name, workspace):
         self.weights, self.scratch, self.metadata = weights, scratch, metadata
         config, draft = weights.config, weights.draft
         eps = config.draft.text["rms_norm_eps"]
@@ -269,11 +273,8 @@ class PreparedDraft:
             self.layers.append(layer.eval())
         self.norm = canonical_norm(draft.norm, eps)
         head = weights.head if draft.head is None else draft.head
-        self.local_logits = scratch.local_logits
-        self.head = (projection(scratch.hidden, head, scratch.local_logits, session=session, name=name + ".head",
-                                workspace=workspace) if local_head else
-                     PreparedVocabularyProjection(scratch.hidden, head, scratch.local_logits, scratch.logits,
-                         runtime=vocabulary_runtime, coordinator=coordinator, session=session, name=name + ".head"))
+        self.head = PreparedVocabularyProjection(scratch.hidden, head, scratch.local_logits, scratch.logits,
+            runtime=vocabulary_runtime, coordinator=coordinator, session=session, name=name + ".head")
 
     def __call__(self):
         hidden = self.embedding.gather(self.embedding.lookup())
@@ -284,26 +285,14 @@ class PreparedDraft:
 
 
 class PreparedMarkov:
-    """The previous token's transition bias, gathered bitwise across tensor-parallel ranks in FP32.
+    """Gather the preceding token's FP32 transition bias across vocabulary shards."""
 
-    With ``local``, it stays this rank's BF16 vocabulary shard (``local_bias``) for a shard argmax.
-    """
-
-    def __init__(self, weights, tokens, *, runtime, coordinator, session, name, local=False):
+    def __init__(self, weights, tokens, *, runtime, coordinator, session, name):
         from ignition.components.embedding import PreparedEmbedding
 
         rows, device = tokens.numel(), tokens.device
         draft, vocabulary = weights.draft, weights.config.vocabulary
         self.embedding = torch.zeros((rows, weights.config.draft.markov_rank), dtype=torch.bfloat16, device=device)
-        self.local_bias = None
-        if local:
-            self.local_bias = torch.zeros((rows, vocabulary // weights.shard.world_size), dtype=torch.bfloat16,
-                                          device=device)
-            self.embed = PreparedEmbedding(draft.markov_embedding, tokens, self.embedding, session=session,
-                                           name=name + ".embed")
-            self.projection = UnquantizedProjection(self.embedding, draft.markov_head, self.local_bias,
-                                                    session=session, name=name + ".head")
-            return
         self.local = torch.zeros((rows, vocabulary // weights.shard.world_size), dtype=torch.float32, device=device)
         self.logits = torch.zeros((rows, vocabulary), dtype=torch.float32, device=device)
         self.embed = PreparedEmbedding(draft.markov_embedding, tokens, self.embedding, session=session,
@@ -315,8 +304,6 @@ class PreparedMarkov:
             runtime=runtime, coordinator=coordinator, session=session, name=name + ".gather")
 
     def __call__(self):
-        if self.local_bias is not None:
-            return self.projection(self.embed())
         self.projection(self.embed())
         self.gather(self.local.view(torch.bfloat16))
         return self.logits
@@ -339,7 +326,7 @@ class SpeculativePreparation:
     """
 
     def __init__(self, weights, pool, requests, inputs, scratch, *, completion, frame, sequence, session, workspace,
-                 collectives, decoder_buffers, draft_tokens, context_runtime, page_tokens, draft_argmax=None):
+                 collectives, decoder_buffers, draft_tokens, context_runtime, page_tokens, markov_runtime):
         from ignition.components.kda_speculation import KDARecords
         from .decoder import PreparedDecoder
 
@@ -351,10 +338,7 @@ class SpeculativePreparation:
         coordinator = collectives["coordinator"]
         self.collectives = dict(runtime=collectives["runtime"], vocabulary_runtime=collectives["vocabulary_runtime"],
                                 coordinator=coordinator)
-        self.markov_runtime = None
-        # A vocabulary-parallel argmax runtime makes the rounds propose greedy drafts from vocabulary shards.
-        self.draft_argmax = draft_argmax
-        local = draft_argmax is not None
+        self.markov_runtime = markov_runtime
         kda_layers = {i: w["attention"] for i, w in enumerate(weights.layers) if weights.config.layers[i] == "kda"}
         heads = weights.config.text["linear_attn_config"]["num_heads"] // weights.shard.world_size
         self.kda_records = KDARecords.allocate(kda_layers, requests.capacity + 1, heads, pool.backing.device)
@@ -368,9 +352,8 @@ class SpeculativePreparation:
         self.context_buffers = {}
         self.forwards = DraftForwards(decoder,
             partial(PreparedContext, runtime=context_runtime, coordinator=coordinator, buffers=self.context_buffers),
-            partial(PreparedDraft, block=self.block_size, embedding_runtime=collectives["embedding_runtime"],
-                    local_head=local),
-            partial(PreparedMarkov, local=local))
+            partial(PreparedDraft, block=self.block_size, embedding_runtime=collectives["embedding_runtime"]),
+            PreparedMarkov)
         self.rng = SpeculativeRngState.allocate(pool.backing.device, capacity=requests.capacity)
         self.generation, self.offset = torch.zeros_like(requests.generation), torch.zeros_like(requests.generation)
         self.draft_scratch = DraftScratch.allocate(weights.config, weights.shard,

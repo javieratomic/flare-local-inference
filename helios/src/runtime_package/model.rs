@@ -1,3 +1,9 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2026 Flare community contributors
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 //! A model package owns a disjoint resource bundle for every tensor-parallel rank.
 
 use super::{
@@ -782,7 +788,7 @@ impl NativeModel {
                 embedding_host_bytes,
             )?;
             model.grant_peer_access(&descriptor.peer_memory)?;
-            model.prepare_offload(root, options, progress)?;
+            model.prepare_offload(root, options, progress, active)?;
         }
         Ok(model)
     }
@@ -794,6 +800,7 @@ impl NativeModel {
         root: &Path,
         options: &LoadOptions,
         progress: &StartupProgress,
+        max_active: usize,
     ) -> Result<()> {
         if !options.prefix_cache.enabled() {
             return Ok(());
@@ -835,6 +842,7 @@ impl NativeModel {
             identity,
             geometry,
             contexts,
+            max_active,
             staging,
             shard,
         )?;
@@ -1076,6 +1084,7 @@ mod tests {
                 disk: Some("unopened-prefix-cache".into()),
                 disk_limit: Some(0),
                 drain_on_shutdown: Default::default(),
+                max_age: std::time::Duration::ZERO,
                 pool: None,
             },
         ] {
@@ -1085,7 +1094,7 @@ mod tests {
             };
             unsafe {
                 model
-                    .prepare_offload(Path::new("unopened-package"), &options, &progress)
+                    .prepare_offload(Path::new("unopened-package"), &options, &progress, 1)
                     .unwrap();
             }
             assert!(model.offload.shared().is_none());
@@ -1098,7 +1107,7 @@ mod tests {
             ..Default::default()
         };
         let error =
-            unsafe { model.prepare_offload(Path::new("unopened-package"), &options, &progress) }
+            unsafe { model.prepare_offload(Path::new("unopened-package"), &options, &progress, 1) }
                 .unwrap_err();
         assert!(error.to_string().contains("lacks an identity"));
     }

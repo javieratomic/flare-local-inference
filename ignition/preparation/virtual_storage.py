@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 Flare community contributors
+# SPDX-License-Identifier: Apache-2.0
+
 """In-process device storage with a fixed virtual extent whose physical prefix grows."""
 
 import ctypes as C

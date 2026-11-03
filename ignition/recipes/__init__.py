@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2026 Flare community contributors
+# SPDX-License-Identifier: Apache-2.0
+
 """Model-specific preparation and graph construction, and the catalog of qualified checkpoints.
 
 A recipe serves any checkpoint of its architecture. Its declared checkpoints are

@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2026 Flare community contributors
+# SPDX-License-Identifier: Apache-2.0
+
 """Configuration file validation and precedence."""
 
 import pytest
@@ -18,6 +22,7 @@ def test_absent_default_file_yields_built_in_values(tmp_path, monkeypatch):
     assert not configuration.exists and configuration.path == tmp_path / ".config/flare/config.toml"
     assert configuration.get("server.host") == Setting("127.0.0.1", "default")
     assert configuration.get("server.port") == Setting(8000, "default")
+    assert configuration.get("server.thinking_token_budget") == Setting(None, "default")
     assert configuration.reserve_bytes == 0 and configuration.model is None
     assert configuration.directory("hub_cache") == tmp_path / ".cache/huggingface/hub"
     assert configuration.directory("kernel_cache") == tmp_path / ".cache/flare/kernels"
@@ -34,6 +39,7 @@ def test_flags_override_the_file_which_overrides_the_recipe(tmp_path):
 [server]
 host = "0.0.0.0"
 port = 9000
+thinking_token_budget = 1536
 
 [defaults]
 model = "qwen3.8-flash"
@@ -50,6 +56,7 @@ speculative_token_capacity = 8
     assert configuration.get("server.host") == Setting("0.0.0.0", "[server]")
     assert configuration.get("server.port") == Setting(9000, "[server]")
     assert configuration.get("server.port", 7000) == Setting(7000, "flag")
+    assert configuration.get("server.thinking_token_budget") == Setting(1536, "[server]")
     assert configuration.model == "qwen3.8-flash" and configuration.reserve_bytes == 16 << 30
 
     assert configuration.max_concurrency("qwen3.8-flash", 4) == Setting(2, '[models."qwen3.8-flash"]')
@@ -69,6 +76,13 @@ def test_prefix_cache_settings_validate(tmp_path):
     for transport in ("nvme", "staged", "direct"):
         with pytest.raises(UsageError, match="disk_transport"):
             load(tmp_path, f'[prefix_cache]\ndisk_transport = "{transport}"\n')
+
+    assert configuration.get("prefix_cache.max_age") == Setting("off", "default")
+    for value in ("off", "2h", "0.5s"):
+        assert load(tmp_path, f'[prefix_cache]\nmax_age="{value}"\n').get("prefix_cache.max_age").value == value
+    for value in ("on", "0", "-1s", "NaN", "2d"):
+        with pytest.raises(UsageError, match="max_age"):
+            load(tmp_path, f'[prefix_cache]\nmax_age="{value}"\n')
 
 
 def test_recipe_supplies_concurrency_when_the_file_is_silent(tmp_path):
@@ -138,6 +152,12 @@ def test_initial_file_documents_the_compile_headroom(tmp_path):
     ("[engine]\npages = 4\n", "unknown section"),
     ("[server]\nport = \"8000\"\n", "port in .* must be int"),
     ("[server]\nport = 70000\n", "1 through 65535"),
+    ("[server]\nthinking_token_budget = 0\n", "positive 32-bit integer"),
+    ("[server]\nthinking_token_budget = -1\n", "positive 32-bit integer"),
+    ("[server]\nthinking_token_budget = 4294967296\n", "positive 32-bit integer"),
+    ("[server]\nthinking_token_budget = 1.5\n", "must be int"),
+    ("[server]\nthinking_token_budget = true\n", "must be int"),
+    ("[server]\nthinking_token_budget = \"1536\"\n", "must be int"),
     ("[defaults]\nmax_concurrency = true\n", "must be int"),
     ("[defaults]\nmax_concurrency = 0\n", "at least 1"),
     ("[defaults]\nspeculative_token_capacity = 0\n", "at least 1"),

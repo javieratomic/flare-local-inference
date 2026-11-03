@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 Flare community contributors
+# SPDX-License-Identifier: Apache-2.0
+
 """MXFP8 attention preserves the prepared SM103 projection path."""
 
 from types import SimpleNamespace

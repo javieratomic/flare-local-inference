@@ -1,3 +1,9 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2026 Flare community contributors
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 use super::*;
 
 #[test]
@@ -147,10 +153,10 @@ fn collective_overview_uses_graph_geometry_and_individual_bindings() {
         ("mixed-choice".into(), ((1u32 << 16) | 64).to_ne_bytes().to_vec()),
     ]];
     let text = super::transport::collective_choices_overview(&value, &choices);
-    assert!(text.contains("Mixed/unknown: 1 group\n"));
-    assert!(text.contains("arbitrary-decode-name · Decode b=4 t=1 rows=4 drafts=0 prefill=0 · Full (4 CTAs)\n"));
-    assert!(text.contains("arbitrary-target-name · Speculative b=4 t=6 rows=16 drafts=5 prefill=0 · Full (4 CTAs)\n"));
-    assert!(text.contains("arbitrary-mixed-name · Mixed b=4 t=1 rows=131 drafts=0 prefill=128 · Payload RSAG (64 CTAs)\n"));
+    assert!(text.contains("0x00000004, 0x00010040: 1 group\n"));
+    assert!(text.contains("arbitrary-decode-name · Decode b=4 t=1 rows=4 drafts=0 prefill=0 · 0x00000004\n"));
+    assert!(text.contains("arbitrary-target-name · Speculative b=4 t=6 rows=16 drafts=5 prefill=0 · 0x00000004\n"));
+    assert!(text.contains("arbitrary-mixed-name · Mixed b=4 t=1 rows=131 drafts=0 prefill=128 · 0x00010040\n"));
 }
 
 pub(super) fn manifest() -> ExecutionManifest {

@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
 """Native chunked prefill exceeding a Qwen package's image feature arena.
 
 Uses the GPU assignment and TP1 Qwen package configured for

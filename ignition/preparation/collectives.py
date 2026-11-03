@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2026 Flare community contributors
+# SPDX-License-Identifier: Apache-2.0
+
 """Bootstrap coordination of b12x collectives over an established Gloo group."""
 
 import json
@@ -101,14 +105,6 @@ def create_result_broadcast_runtime(group, device, *, layouts, ipc=None):
     max_rows = (max(sizes) + 511) // 512
     return create_all_gather_runtime(group, device, max_rows=max_rows,
         columns=256 * dist.get_world_size(group), ipc=ipc)
-
-
-def create_vocabulary_argmax_runtime(group, device, *, local_vocab_size, max_rows, ipc=None):
-    """Allocate b12x exchange slabs for exact greedy tokens over vocabulary shards (TP8, TP12 or TP16)."""
-    from b12x.comm.pcie.pcie_vocab_argmax import PCIeVocabParallelArgmax
-
-    return PCIeVocabParallelArgmax.from_exchange_group(exchange_group=group, device=device,
-        local_vocab_size=local_vocab_size, max_batch_size=max_rows, ipc=ipc)
 
 
 def create_dma_all_reduce_runtime(group, device, *, max_tokens, hidden_size, ipc=None, element_bytes=2):

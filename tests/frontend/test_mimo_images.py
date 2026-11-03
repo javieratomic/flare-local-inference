@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
 """Native MiMo patches and prompt expansion match the Transformers image processor."""
 
 import hashlib
@@ -48,12 +51,12 @@ def test_native_mimo_chat_matches_transformers(tmp_path):
         dict(role='tool', content='Sunny.')], add_generation_prompt=True)
     from ignition.preparation.frontend import annotated_template_asset
     annotated = annotated_template_asset((SNAPSHOT / 'chat_template.jinja').read_bytes(),
-        ROOT / 'ignition/recipes/mimo_v2/assets/chat_template.jinja')
+        ROOT / 'ignition/recipes/mimo_v2/assets/chat_template.patch.json')
     native_assets = tmp_path / 'assets'
     native_assets.mkdir()
     for name in ('tokenizer.json', 'tokenizer_config.json'):
         (native_assets / name).symlink_to(SNAPSHOT / name)
-    (native_assets / 'chat_template.jinja').symlink_to(annotated['path'])
+    (native_assets / 'chat_template.jinja').write_text(annotated['text'])
     assets = {name: hashlib.sha256((native_assets / name).read_bytes()).hexdigest()
               for name in ('tokenizer.json', 'tokenizer_config.json', 'chat_template.jinja')}
     fixture = tmp_path / 'chat.json'

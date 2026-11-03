@@ -1,3 +1,8 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 use std::collections::HashSet;
 
 pub fn configure(devices: &[i32]) -> Result<(), Box<dyn std::error::Error>> {

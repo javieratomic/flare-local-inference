@@ -1,3 +1,8 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 use axum::serve::Listener;
 use std::{io, net::SocketAddr};
 use tokio::net::{TcpListener, TcpStream};

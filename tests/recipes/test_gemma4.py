@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2026 Flare community contributors
+# SPDX-License-Identifier: Apache-2.0
+
 """Unit tests for the Gemma 4 recipe, configuration, pool layout, and numerical kernels."""
 
 import json
@@ -519,13 +523,18 @@ def test_frontend_contract_and_cache_regions():
         ("gemma-4-31b-nvfp4", _dense_31b_raw, "chat_template.google.jinja"),
     ],
 )
-def test_model_sizes_select_canonical_chat_templates(alias, raw_fn, filename):
+def test_model_sizes_select_canonical_chat_templates(alias, raw_fn, filename, monkeypatch):
+    import os
+    import huggingface_hub
+
+    directory = Path(os.environ["FLARE_TEST_TEMPLATE_DIR"]) / "gemma4"
+    source = directory / filename.replace(".jinja", ".source.jinja")
+    monkeypatch.setattr(huggingface_hub, "hf_hub_download", lambda *args, **kwargs: str(source))
     assert resolve(alias).recipe is RECIPE
     config = ModelConfig.from_dict(raw_fn())
     asset = chat_template_asset(config.hidden)
-    path = Path(asset["path"])
-    assert path.name == filename
-    assert path.read_bytes().count(b"{%- mark -%}") == 2
+    assert asset["text"].encode() == (directory / filename).read_bytes()
+    assert asset["text"].count("{%- mark -%}") == 2
 
 
 @pytest.mark.parametrize(
@@ -540,7 +549,7 @@ def test_canonical_chat_templates_match_pinned_google_sources(checkpoint):
         pytest.skip("Google checkpoint configuration and chat template are not cached")
     source = (snapshot / "chat_template.jinja").read_bytes()
     config = ModelConfig.load(snapshot)
-    annotated = Path(chat_template_asset(config.hidden)["path"]).read_bytes()
+    annotated = chat_template_asset(config.hidden)["text"].encode()
     assert annotated.replace(b"{%- mark -%}", b"") == source
     assert annotated.count(b"{%- mark -%}") == 2
 

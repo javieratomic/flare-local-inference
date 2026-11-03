@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
 """Direct MiniMax M3 transfers preserving MXFP8 and NVFP4 checkpoint scales."""
 
 from contextlib import nullcontext

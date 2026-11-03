@@ -1,3 +1,8 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 //! Hardware revision selection through NVML without initializing CUDA.
 
 use std::ffi::{CStr, CString, c_char, c_int, c_uint, c_void};

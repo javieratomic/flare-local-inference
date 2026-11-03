@@ -1,4 +1,12 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 pub mod cache;
+#[cfg(all(test, feature = "frontend"))]
+#[path = "../tests/support/templates.rs"]
+mod template_fixtures;
 mod cuda;
 #[cfg_attr(not(feature = "runtime-package"), allow(dead_code))]
 pub mod engram;

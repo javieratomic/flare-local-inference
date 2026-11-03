@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 Flare community contributors
+# SPDX-License-Identifier: Apache-2.0
+
 """Decode context parallel placement of Kimi K3 latent records.
 
 As in vLLM's Kimi K3 serving (decode context parallel size 16, KV interleave 1), ranks own single

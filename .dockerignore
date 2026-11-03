@@ -18,6 +18,8 @@ helios/**
 !helios/proto/**
 !helios/native/
 !helios/native/**
+!helios/licenses/
+!helios/licenses/PyTorch.txt
 !eos/
 eos/**
 !eos/Cargo.toml

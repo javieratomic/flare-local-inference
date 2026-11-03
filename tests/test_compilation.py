@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
 """Ordering of writes through typed aliases in captured inference forwards."""
 
 import os
@@ -662,6 +665,32 @@ def test_snapshots_of_reused_copy_destinations():
     graph.replay()
     for value, snapshot in enumerate(snapshots, 1):
         torch.testing.assert_close(snapshot, torch.full_like(snapshot, value), rtol=0, atol=0)
+
+
+@pytest.mark.skipif(os.environ.get("FLARE_RUN_CUDA_TESTS") != "1", reason="explicit CUDA assignment required")
+@torch.no_grad()
+def test_row_expansion_reads_overlapping_rows_before_writing():
+    # Packed rows expand into sample slots of the same buffer, as vocabulary and hidden heads do.
+    rows, width = 6, 129280
+    output = torch.empty((2 * rows, width), device="cuda")
+    physical = output[:rows]
+    source = torch.zeros_like(physical)
+    indices = torch.zeros(2 * rows, dtype=torch.int64, device="cuda")
+
+    def forward():
+        physical.copy_(source)
+        output.copy_(physical[indices])
+
+    compiled = compile_forward(forward)
+    compiled()
+    graph = torch.cuda.CUDAGraph()
+    with torch.cuda.graph(graph):
+        compiled()
+    for shift in range(1, rows):
+        source.copy_(torch.randn_like(source))
+        indices.copy_((torch.arange(2 * rows, device="cuda") + shift) % rows)
+        graph.replay()
+        torch.testing.assert_close(output, source[indices], rtol=0, atol=0)
 
 
 @pytest.mark.skipif(os.environ.get("FLARE_RUN_CUDA_TESTS") != "1", reason="explicit CUDA assignment required")

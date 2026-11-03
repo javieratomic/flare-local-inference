@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2026 Flare community contributors
+# SPDX-License-Identifier: Apache-2.0
+
 """Bounded top-k draft proposals: filtering and sampling over at most DRAFT_CANDIDATES tokens.
 
 Proposals follow the request policy after penalties, grammar and temperature:

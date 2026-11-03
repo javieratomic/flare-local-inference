@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
 """DFlash2 acceptance and complete prefix restore through an exported Qwen package.
 
 Set FLARE_RUN_CUDA_TESTS=1, FLARE_QWEN_DFLASH_TEST_URL, and

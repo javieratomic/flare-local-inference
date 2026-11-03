@@ -1,3 +1,9 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2026 Flare community contributors
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 //! A verified package's signed metadata as one JSON document: the facts a reader of the model
 //! card, an operator sizing a host, or a client tuning requests may want, read from the index
 //! alone. Nothing here authorizes the package, touches a GPU, or reads stored weights.

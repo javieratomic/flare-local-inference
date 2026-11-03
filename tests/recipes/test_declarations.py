@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2026 Flare community contributors
+# SPDX-License-Identifier: Apache-2.0
+
 """Declared recipe costs against the layouts and checkpoints they describe."""
 
 import math
@@ -317,7 +321,8 @@ def test_deepseek41_native_checkpoint_and_scale_compression(monkeypatch, tmp_pat
     assert resolve(model.checkpoint.repository).checkpoint is model.checkpoint
     assert model.recipe.sampling_defaults.as_dict() == {
         "temperature": 1., "top_p": 1., "top_k": -1, "seed": 0, "min_p": 0.,
-        "repetition_penalty": 1., "presence_penalty": 0., "frequency_penalty": 0.}
+        "repetition_penalty": 1., "presence_penalty": 0., "frequency_penalty": 0.,
+        "ranges": {"top_p": {"min": .95, "max": 1.}, "repetition_penalty": {"min": 1., "max": 1.1}}}
     speculation = model.recipe.speculation if drafting else None
     native = fitted(model, 4, speculation=speculation, expert_scale_compression="native")
     plan = fitted(model, 4, speculation=speculation, expert_scale_compression=compression)

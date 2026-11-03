@@ -1,3 +1,9 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2026 Flare community contributors
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 //! Host configuration defaults for native serving and prepared-model acquisition.
 
 use std::{
@@ -10,7 +16,7 @@ use std::{
 
 use clap::{ArgMatches, parser::ValueSource};
 use flare_helios::{
-    offload::{parse_drain_on_shutdown, parse_size},
+    offload::{parse_drain_on_shutdown, parse_max_age, parse_size},
     runtime_package::MemoryLimit,
 };
 use serde::Deserialize;
@@ -36,6 +42,7 @@ struct Server {
     host: Option<IpAddr>,
     port: Option<std::num::NonZeroU16>,
     api_key: Option<String>,
+    thinking_token_budget: Option<std::num::NonZeroU32>,
 }
 
 #[derive(Default, Deserialize)]
@@ -56,6 +63,7 @@ struct PrefixCache {
     memory: Option<String>,
     disk_limit: Option<String>,
     drain_on_shutdown: Option<String>,
+    max_age: Option<String>,
 }
 
 #[derive(Default, Deserialize)]
@@ -92,6 +100,9 @@ impl Configuration {
         if let Some(value) = nonempty(configuration.prefix_cache.drain_on_shutdown.as_deref()) {
             parse_drain_on_shutdown(value)
                 .map_err(|error| format!("prefix_cache.drain_on_shutdown: {error}"))?;
+        }
+        if let Some(value) = nonempty(configuration.prefix_cache.max_age.as_deref()) {
+            parse_max_age(value).map_err(|error| format!("prefix_cache.max_age: {error}"))?;
         }
         Ok(configuration)
     }
@@ -155,6 +166,11 @@ impl Configuration {
                         nonempty(self.prefix_cache.drain_on_shutdown.as_deref())
                             .map(parse_drain_on_shutdown)
                             .transpose()?;
+                }
+                if serving.prefix_cache_max_age.is_none() {
+                    serving.prefix_cache_max_age = nonempty(self.prefix_cache.max_age.as_deref())
+                        .map(parse_max_age)
+                        .transpose()?;
                 }
                 if serving.prefix_cache_disk.is_none() {
                     serving.prefix_cache_disk = nonempty(self.paths.prefix_cache.as_deref())
@@ -236,6 +252,12 @@ impl Configuration {
                 }),
             None => Ok(self.server.api_key.clone().unwrap_or_default()),
         }
+    }
+
+    pub(crate) fn thinking_token_budget(&self) -> Option<u32> {
+        self.server
+            .thinking_token_budget
+            .map(std::num::NonZeroU32::get)
     }
 }
 
@@ -378,6 +400,7 @@ mod tests {
 host = "::1"
 port = 9001
 api_key = "configured-secret"
+thinking_token_budget = 1536
 [memory]
 reserve = "2G"
 [defaults]
@@ -414,6 +437,7 @@ namespace = "publisher"
         );
         assert_eq!(run.bind_address().to_string(), "[::1]:9001");
         assert_eq!(config.api_key(None).unwrap(), "configured-secret");
+        assert_eq!(config.thinking_token_budget(), Some(1536));
         assert_eq!(run.memory_limit, Some(MemoryLimit::Reserve(2 << 30)));
         assert_eq!(run.max_concurrency.unwrap().get(), 4);
         assert_eq!(run.prefix_cache_memory, Some(3 << 29));
@@ -485,6 +509,7 @@ namespace = "publisher"
         assert!(run.prefix_cache_disk_limit.is_none());
         assert_eq!(run.bind_address().to_string(), "127.0.0.1:8000");
         assert_eq!(config.api_key(None).unwrap(), "");
+        assert_eq!(config.thinking_token_budget(), None);
     }
 
     #[test]
@@ -560,6 +585,12 @@ namespace = "publisher"
             "[server]\nport=0",
             "[server]\nport=65536",
             "[server]\napi_key=7",
+            "[server]\nthinking_token_budget=0",
+            "[server]\nthinking_token_budget=-1",
+            "[server]\nthinking_token_budget=4294967296",
+            "[server]\nthinking_token_budget=true",
+            "[server]\nthinking_token_budget=1.5",
+            "[server]\nthinking_token_budget='1536'",
             "[defaults]\nmax_concurrency=0",
             "[models.recipe]\nmax_concurrency=-1",
             "[memory]\nreserve='-1G'",
@@ -728,5 +759,40 @@ namespace = "publisher"
         assert!(run.prefix_cache_memory.is_none());
         assert!(run.prefix_cache_disk_limit.is_none());
         assert!(run.prefix_cache_disk.is_none());
+    }
+    #[test]
+    fn prefix_cache_age_reaches_flags_config_and_ranks() {
+        let (_, run) = configured("", &["flare", "run", "model.safetensors"], &[]);
+        assert_eq!(
+            run.load_options().prefix_cache.max_age,
+            std::time::Duration::ZERO
+        );
+        for value in ["off", "2h", "0.5s"] {
+            let (_, run) = configured(
+                &format!("[prefix_cache]\nmax_age='{value}'"),
+                &["flare", "run", "model.safetensors"],
+                &[],
+            );
+            assert_eq!(
+                run.load_options().prefix_cache.max_age,
+                parse_max_age(value).unwrap()
+            );
+            let mut args = vec![
+                "flare".to_string(),
+                "run".into(),
+                "model.safetensors".into(),
+            ];
+            args.extend(run.rank_options());
+            let cli::Command::Run(peer) = cli::Cli::try_parse_from(args).unwrap().command else {
+                panic!()
+            };
+            assert_eq!(
+                peer.load_options().prefix_cache.max_age,
+                run.load_options().prefix_cache.max_age
+            );
+        }
+        for invalid in ["on", "0", "-1s", "NaN", "2d"] {
+            assert!(Configuration::parse(&format!("[prefix_cache]\nmax_age='{invalid}'")).is_err());
+        }
     }
 }

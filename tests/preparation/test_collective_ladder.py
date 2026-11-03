@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
 """Offline ladders select final geometry at inclusive payload boundaries."""
 
 from copy import deepcopy
@@ -6,7 +9,13 @@ from pathlib import Path
 import pytest
 
 from ignition.errors import UsageError
-from ignition.preparation.collective_ladder import load, resolve, select, validate
+from ignition.preparation.collective_ladder import (
+    load,
+    resolve,
+    select,
+    select_gather,
+    validate,
+)
 
 LADDER = Path(__file__).resolve().parents[2] / "ignition/preparation/ladders/gb202_pcie_tp4.json"
 
@@ -41,7 +50,7 @@ def test_rejects_incompatible_reduction(changes):
         choose(load(LADDER), 4096, **changes)
 
 
-@pytest.mark.parametrize("changes", [dict(version=2), dict(extra=1), dict(world_size=1),
+@pytest.mark.parametrize("changes", [dict(version=1), dict(version=3), dict(extra=1), dict(world_size=1),
     dict(dtype="float16"), dict(inplace=0), dict(min_bytes=1025), dict(buckets=[]), dict(cache_policy="unknown")])
 def test_invalid_contract(changes):
     with pytest.raises(UsageError, match="collective ladder"):
@@ -125,3 +134,64 @@ def test_native_export_preserves_ladder_contents():
     restored = ModelIndex.FromString(index.SerializeToString())
     assert restored.rebuild.collective_tuning == "runtime"
     assert json.loads(restored.rebuild.collective_ladder_json) == data
+
+
+def test_gather_ladder_covers_bytes_with_monotonic_geometry():
+    data = load(LADDER)
+    layout = data["all_gather"]
+    assert layout["min_bytes"] == 128
+    assert len(layout["buckets"]) == 207
+    assert layout["buckets"][-1]["max_bytes"] == 8 << 20
+    lower, geometry = 128, (0, 0)
+    for row in layout["buckets"]:
+        for size in (lower, row["max_bytes"]):
+            assert select_gather(data, size, world_size=4, capability=(12, 0)) is row
+        assert row["threads"] >= geometry[0]
+        assert row["blocks"] >= geometry[1]
+        geometry = row["threads"], row["blocks"]
+        assert sum(map(len, row["profiles"].values())) <= 5
+        lower = row["max_bytes"] + 16
+
+
+@pytest.mark.parametrize("size", [0, 129, (8 << 20) + 16])
+def test_gather_ladder_does_not_extrapolate_sizes(size):
+    with pytest.raises(UsageError, match="no all-gather"):
+        select_gather(load(LADDER), size, world_size=4, capability=(12, 0))
+
+
+def test_byte_buckets_retain_barrier_profiles_for_different_row_widths():
+    data = load(LADDER)
+    small = select_gather(data, 8192, world_size=4, capability=(12, 0))
+    assert small["profiles"] == {"barrier": [1, 2, 4], "word_exchange": [32]}
+    large = select_gather(data, 1048576, world_size=4, capability=(12, 0))
+    assert large["profiles"]["barrier"] == [1, 64]
+
+
+@pytest.mark.parametrize("changes", [{"threads": 96}, {"blocks": 0},
+    {"max_bytes": 129}, {"profiles": {"pull": [1]}},
+    {"profiles": {"word_exchange": [65]}}, {"profiles": {"word_exchange": [1, 1]}}])
+def test_invalid_gather_bucket(changes):
+    data = deepcopy(load(LADDER))
+    data["all_gather"]["buckets"][0].update(changes)
+    with pytest.raises(UsageError, match="all-gather"):
+        validate(data)
+
+
+def test_gather_ladder_rejects_word_exchange_above_limit():
+    data = deepcopy(load(LADDER))
+    data["all_gather"]["buckets"][-1]["implementation"] = "gather_joint"
+    with pytest.raises(UsageError, match="at most 16 KiB"):
+        validate(data)
+
+
+@pytest.mark.parametrize("world,capability", [(2, (12, 0)), (4, (12, 1))])
+def test_gather_ladder_requires_matching_hardware(world, capability):
+    with pytest.raises(UsageError, match="does not match"):
+        select_gather(load(LADDER), 128, world_size=world, capability=capability)
+
+
+def test_reduction_only_ladder_has_explicit_null_gather():
+    data = validate(load(LADDER) | {"all_gather": None})
+    assert choose(data, 1024)["max_bytes"] == 1024
+    with pytest.raises(UsageError, match="no all-gather bucket"):
+        select_gather(data, 128, world_size=4, capability=(12, 0))

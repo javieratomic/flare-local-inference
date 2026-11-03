@@ -1,3 +1,8 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 //! Integration tests for `flare models` against a real, CPU-prepared package fixture.
 //!
 //! Every test builds a signed payload-format package with the native export API,

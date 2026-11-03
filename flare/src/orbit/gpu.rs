@@ -1,3 +1,8 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026 Flare community contributors
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 //! GPU inventory read through NVML (`libnvidia-ml.so.1`). NVML queries the driver without
 //! creating a CUDA context, so the agent can report every GPU on its host, including GPUs that
 //! running ranks own.

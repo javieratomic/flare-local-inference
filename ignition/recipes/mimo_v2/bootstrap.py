@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2026 Flare community contributors
+# SPDX-License-Identifier: Apache-2.0
+
 """Prepare MiMo text, DFlash proposals and image encoder graphs for local TP."""
 
 import contextlib
@@ -498,7 +502,7 @@ def prepare_rank(snapshot, config, *, rank, group, progress=None, package_storag
     }
     assets["chat_template"] = annotated_template_asset(
         (snapshot / "chat_template.jinja").read_bytes(),
-        Path(__file__).with_name("assets") / "chat_template.jinja")
+        Path(__file__).with_name("assets") / "chat_template.patch.json")
     cache_regions = [history_region(buffers, "cache." + name, tensor, contract_proto.PAGED_KEY_VALUE)
         for name, tensor in pool.pages.items()]
     buffers["request_pending_token"] = requests.pending_token

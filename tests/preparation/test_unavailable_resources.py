@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 Flare community contributors
+# SPDX-License-Identifier: Apache-2.0
+
 """Placeholders for process-local resources survive the pickling of compiled-forward guards."""
 
 import pickle

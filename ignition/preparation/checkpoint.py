@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2026 Flare community contributors
+# SPDX-License-Identifier: Apache-2.0
+
 """Validate checkpoint metadata without importing torch or reading tensor payloads.
 
 Tensor transfer belongs to b12x.loader.DirectWeightSession. Its manifest reader

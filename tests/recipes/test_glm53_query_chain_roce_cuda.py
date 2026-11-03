@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 Flare community contributors
+# SPDX-License-Identifier: Apache-2.0
+
 """GLM query overlap captures alongside a shared RoCEnante transport.
 
 Run the test on two assigned Spark hosts with FLARE_RUN_ROCE_TESTS=1,

@@ -1,3 +1,9 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2026 Flare community contributors
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 //! Bounded live-request resources and scheduling with CUDA-fenced retirement.
 
 mod cost;
@@ -277,6 +283,10 @@ pub struct LiveRequest {
 }
 
 impl LiveRequest {
+    fn plans_prompt_capture(&self) -> bool {
+        self.checkpoint_budget >= 2 && self.max_new_tokens > 1
+    }
+
     fn prefill_kind(&self) -> GraphKind {
         if self.prompt_logprobs { GraphKind::ScoredPrefill } else { GraphKind::Prefill }
     }
@@ -675,6 +685,7 @@ pub struct RequestScheduler {
     tickets: HashMap<PrefixKey, Ticket>,
     track_publications: bool,
     publications: Vec<CheckpointId>,
+    offered_publications: BTreeSet<CheckpointId>,
     track_evictions: bool,
     evictions: Vec<EvictedCheckpoint>,
     evictions_lost: bool,
@@ -751,6 +762,7 @@ impl RequestScheduler {
             tickets: HashMap::new(),
             track_publications: false,
             publications: Vec::new(),
+            offered_publications: BTreeSet::new(),
             track_evictions: false,
             evictions: Vec::new(),
             evictions_lost: false,
@@ -981,6 +993,18 @@ impl RequestScheduler {
         request.decoded_sequence = sequence;
         Ok(())
     }
+
+    /// Records host-forced output without changing device completion counters.
+    #[cfg(feature = "server")]
+    pub(crate) fn record_decoded_token(&mut self, handle: RequestHandle, token: u32) -> Result<()> {
+        let mut sequence = self.request(handle)?.decoded_sequence;
+        if let Some(history) = &mut self.decoded_history {
+            history.append(&mut sequence, token);
+            self.request_mut(handle)?.decoded_sequence = sequence;
+        }
+        Ok(())
+    }
+
     pub fn graph_durations(&mut self, graphs: &[crate::execution::GraphDescriptor]) -> Result<()> {
         if self.submitted != Fence(0) || self.slots.iter().any(|s| s.request.is_some()) {
             return Err("graph durations must be configured before admission".into());
@@ -1557,7 +1581,7 @@ impl RequestScheduler {
         let checkpoint_budget = if self.limits.snapshots == 0 {
             0
         } else {
-            (self.limits.snapshots as usize / self.limits.max_active).max(1)
+            (self.limits.snapshots as usize / self.limits.max_active).clamp(1, 8)
         };
         let endpoints = 1 + usize::from(spec.max_new_tokens > 1 && consumed < spec.prompt.len() as u64);
         let message_boundaries = checkpoint_boundaries(
@@ -1621,6 +1645,11 @@ impl RequestScheduler {
         self.stats.cache_lookups += u64::from(!spec.prompt_logprobs);
         self.stats.cache_hits += u64::from(hit);
         self.stats.reused_tokens += reused;
+        if inbound.is_none()
+            && let Some(id) = lookup.checkpoint
+        {
+            self.record_publication(id);
+        }
         Ok(Admitted { handle, ticket })
     }
 
@@ -1680,8 +1709,8 @@ impl RequestScheduler {
         }
         if matches!(result, PublishResult::Created { .. }) {
             self.stats.snapshot_publications += 1;
-            self.record_publication(id);
         }
+        self.record_publication(id);
         let snapshot = self.cache.checkpoint(id)?.snapshot();
         let shared_pages = self.cache.page_chain(id)?;
         for handle in ticket.waiters {
@@ -1714,8 +1743,8 @@ impl RequestScheduler {
         self.track_publications = true;
     }
 
-    /// Checkpoints that became GPU-ready since tracking was enabled or the
-    /// previous call, in that order and each once, omitting retired checkpoints.
+    /// GPU-ready checkpoints offered since the previous call, each once and
+    /// omitting retired checkpoints. Deferred checkpoints are offered on reuse.
     pub fn take_publications(&mut self) -> Vec<PublishedCheckpoint> {
         std::mem::take(&mut self.publications)
             .into_iter()
@@ -1725,23 +1754,32 @@ impl RequestScheduler {
 
     pub(crate) fn publication(&self, id: CheckpointId) -> Option<PublishedCheckpoint> {
         let checkpoint = self.cache.checkpoint(id).ok()?;
-        let parent = match checkpoint.parent() {
-            Some(parent) => Some(self.cache.checkpoint(parent).ok()?.prefix()),
-            None => None,
-        };
+        let mut ancestor = checkpoint.parent();
+        let mut parent = None;
+        while let Some(ancestor_id) = ancestor {
+            let node = self.cache.checkpoint(ancestor_id).ok()?;
+            if self.offered_publications.contains(&ancestor_id) {
+                parent = Some(node.prefix());
+                break;
+            }
+            ancestor = node.parent();
+        }
+        let page_tokens = self.capabilities.page_tokens as u64;
         Some(PublishedCheckpoint {
             id,
             key: checkpoint.prefix(),
             parent,
             bucket: checkpoint.bucket(),
             chain_pages: self.cache.page_chain(id).ok()?,
-            tail_pages: checkpoint.tail_pages().len(),
+            tail_pages: (checkpoint.prefix().consumed_tokens / page_tokens
+                - parent.map_or(0, |key| key.consumed_tokens / page_tokens))
+                as usize,
             slot: self.snapshot_slot(checkpoint.snapshot()),
         })
     }
 
     fn record_publication(&mut self, id: CheckpointId) {
-        if !self.track_publications {
+        if !self.track_publications || !self.offered_publications.insert(id) {
             return;
         }
         // Bound queued notifications when the store delays draining them.
@@ -1754,6 +1792,7 @@ impl RequestScheduler {
 
     fn apply_completion(&mut self, update: CompletionUpdate) {
         self.stats.snapshot_publications += update.published.len() as u64;
+        // Boundary and terminal captures publish already ready, so deferral is decided there.
         for id in update.published {
             self.record_publication(id);
         }
@@ -2541,9 +2580,8 @@ impl RequestScheduler {
                 .or_else(|| {
                     (endpoint == request.prompt_tokens as u64
                         && endpoint > request.prefix_tokens
-                        && request.checkpoint_budget >= 2
-                        && request.max_new_tokens > 1)
-                        .then_some(BoundaryKind::Prompt)
+                        && request.plans_prompt_capture())
+                    .then_some(BoundaryKind::Prompt)
                 });
                 if let Some(kind) = capture {
                     captures.push((lane.request, Some(kind), endpoint, request.phase));
@@ -2600,6 +2638,12 @@ impl RequestScheduler {
             } else {
                 self.retain_snapshot()?
             };
+            if snapshot.is_none()
+                && matches!(kind, Some(BoundaryKind::Prompt))
+                && let Some(prefix) = self.request(handle)?.prefix
+            {
+                self.record_publication(prefix);
+            }
             let request = self.request_mut(handle)?;
             if let Some(snapshot) = snapshot {
                 if let Some(kind) = kind {
@@ -2650,12 +2694,20 @@ impl RequestScheduler {
             ready_after: request.last_use,
         };
         let history = request.history.clone();
+        // Only the last selected message can be the prompt's direct parent.
+        let defer = matches!(capture.kind, BoundaryKind::Message)
+            && request.message_boundaries.last() == Some(&(capture.consumed_tokens as usize))
+            && request.prompt_tokens - (capture.consumed_tokens as usize)
+                < self.capabilities.page_tokens
+            && request.plans_prompt_capture();
         let result = self.cache.publish(&history, &proposal)?;
         if let PublishResult::Created { id, ready } = result {
             if !ready {
                 return Err("completed boundary copy was not GPU-ready".into());
             }
-            self.record_publication(id);
+            if !defer {
+                self.record_publication(id);
+            }
             self.cache.pin(id)?;
             if let Some(parent) = self.request(handle)?.prefix {
                 self.cache.unpin(parent)?;
@@ -2784,9 +2836,8 @@ impl RequestScheduler {
         let mut request = self.slots[handle.slot as usize].request.take().unwrap();
         let mut snapshot = request.terminal_snapshot;
         if matches!(result, Some(PublishResult::Created { .. })) {
-            if let Some(PublishResult::Created { id, ready: true }) = result {
+            if let Some(PublishResult::Created { ready: true, .. }) = result {
                 self.stats.snapshot_publications += 1;
-                self.record_publication(id);
             }
             request
                 .private_pages
@@ -2794,7 +2845,18 @@ impl RequestScheduler {
             snapshot = None;
         }
         if let Some(prefix) = request.prefix {
+            if !publish || request.error_code.is_some() {
+                self.record_publication(prefix);
+            }
             self.cache.unpin(prefix)?;
+        }
+        if request.preempted
+            && let Some(
+                PublishResult::Created { id, ready: true }
+                | PublishResult::Existing { id, ready: true },
+            ) = result
+        {
+            self.record_publication(id);
         }
         self.slots[handle.slot as usize].retiring = true;
         request.private_pages.extend(request.reserved_pages);

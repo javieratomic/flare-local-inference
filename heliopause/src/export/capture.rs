@@ -1,3 +1,8 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 //! Capture prepared CUDA graph declarations and their reachable storage.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
@@ -1806,7 +1811,12 @@ fn current_platform(cuda: &Cuda) -> ExportResult<Option<String>> {
     let slot = attribute("cuDeviceGetAttribute", 34, b"cuDeviceGetAttribute\0")?;
     let domain = attribute("cuDeviceGetAttribute", 50, b"cuDeviceGetAttribute\0")?;
     let bus_id = std::ffi::CString::new(format!("{domain:04x}:{bus:02x}:{slot:02x}.0"))?;
-    let library = unsafe { Library::new("libnvidia-ml.so.1") }
+    let soname = if cfg!(windows) {
+        "nvml.dll"
+    } else {
+        "libnvidia-ml.so.1"
+    };
+    let library = unsafe { Library::new(soname) }
         .map_err(|error| invalid(format!("NVML is required to name an export: {error}")))?;
     #[repr(C)]
     struct PciInfo {

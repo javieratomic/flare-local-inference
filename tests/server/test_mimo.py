@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
 """Live MiMo text, image and prefix-cache requests through the native TP service.
 
 Set FLARE_RUN_CUDA_TESTS=1 and FLARE_MIMO_TEST_URL to a MiMo service with

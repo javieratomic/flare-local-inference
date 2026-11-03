@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
 """MoonViT image execution with learned positions, axial RoPE, and spatial merging."""
 
 from dataclasses import dataclass

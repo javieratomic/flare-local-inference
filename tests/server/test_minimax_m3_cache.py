@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
 """Complete MiniMax M3 continuations through native host offload and readmission.
 
 Requires FLARE_RUN_CUDA_TESTS=1, four assigned CUDA_VISIBLE_DEVICES, and

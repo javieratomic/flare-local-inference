@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2026 Flare community contributors
+# SPDX-License-Identifier: Apache-2.0
+
 """Packed projections on SM103 through FlashInfer's native SM100-family GEMMs.
 
 b12x prepares SM120/SM121 kernels. On SM103 (GB300/B300) these plans keep

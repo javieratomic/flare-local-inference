@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
 """Physical backing retention spans compiled preparation and excludes capture."""
 from contextlib import contextmanager, nullcontext
 from types import SimpleNamespace

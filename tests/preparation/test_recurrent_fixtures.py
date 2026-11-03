@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 Flare community contributors
+# SPDX-License-Identifier: Apache-2.0
+
 """Recurrent tuning fixtures preserve live sequence lengths within padded verification metadata."""
 
 import pytest

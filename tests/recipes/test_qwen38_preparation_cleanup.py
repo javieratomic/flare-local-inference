@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 Flare community contributors
+# SPDX-License-Identifier: Apache-2.0
+
 """CPU allocation-routing and exception ownership checks for Qwen preparation."""
 
 import contextlib
