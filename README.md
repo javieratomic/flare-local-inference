@@ -6,12 +6,13 @@
 
 ## About this branch
 
-This `integration` branch is upstream `main` plus the changes below, proposed
-upstream in four pull requests and one issue, none merged yet. They speed up
-multi-host model preparation, and were measured with DeepSeek V4.1 Flash on DGX
-Spark (GB10) hosts. Measurements are from TP3 exports on three hosts, one run
-per configuration. Each row is measured against the build it was developed on,
-not always upstream `main`; the linked item gives the exact baseline.
+This `integration` branch is upstream `main` (last merged on 2026-11-03, at
+`cc696a6b`) plus the changes below, proposed upstream in four pull requests and
+one issue, none merged yet. They speed up multi-host model preparation, and were
+measured with DeepSeek V4.1 Flash on DGX Spark (GB10) hosts. Measurements are
+from TP3 exports on three hosts, one run per configuration. Each row is measured
+against the build it was developed on, not always upstream `main`; the linked
+item gives the exact baseline.
 
 | Change | Upstream | Phase | Before | After |
 |---|---|---|---|---|
@@ -24,6 +25,26 @@ not always upstream `main`; the linked item gives the exact baseline.
 
 The packages exported with #122, #124, #125 and #126 served normally with
 `flare run` (262k-token retrieval 16/16).
+
+### Not in this branch: a DeepSeek 4.1 prefill-scratch prototype
+
+A local prototype reduces the fixed prefill scratch of the DeepSeek 4.1 recipe,
+which leaves more memory to the KV cache. It was written with Claude Opus 5.5 and
+falls under the [contribution rules](AGENTS.md#cuda-kernel-and-model-optimization-authorship)
+on model optimizations, so it is not published, merged here or proposed upstream.
+Its measurement is reported in
+[#186](https://github.com/NVIDIA/spark-local-inference/issues/186). Against upstream `main` at `f571a550`,
+TP3 on three GB10 hosts, three starts of each package:
+
+| | Upstream `main` | With the prototype |
+|---|---|---|
+| Fixed device memory per GPU | 96.71 GiB | 96.25 GiB |
+| KV tokens, mean of 3 starts | 7.71M | 8.30M (+7.6 %) |
+
+First-token top-20 log-probabilities were bit-identical for prompts of 836 to
+94,341 tokens. Decode and prefill differences ranged from -2.9 % to +2.9 %,
+within the spread between starts of the same package (up to about 13 %); see the
+issue.
 
 Flare is a local inference server for NVIDIA SM120/SM121 GPUs, built for
 long conversations, coding agents, and repeated tool use. Its goal is to make
