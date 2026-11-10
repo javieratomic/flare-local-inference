@@ -4,7 +4,12 @@
 
 > **Coding agents:** skip this README and read [AGENTS.md](AGENTS.md) directly.
 
-## About this branch
+## About this fork and branch
+
+This is a community fork of [Hyperflare](https://github.com/NVIDIA/hyperflare-inference),
+a local inference server for NVIDIA SM120/SM121 GPUs published by NVIDIA as a
+research prototype, formerly named Flare. It is not an official NVIDIA release. The text below this section is upstream's
+README as of the last merge, which still uses the name Flare.
 
 This `integration` branch is upstream `main` (last merged on 2026-11-03, at
 `cc696a6b`) plus the changes below, proposed upstream in four pull requests and
@@ -12,29 +17,41 @@ one issue, none merged yet. They speed up multi-host model preparation, and were
 measured with DeepSeek V4.1 Flash on DGX Spark (GB10) hosts. Measurements are
 from TP3 exports on three hosts, one run per configuration. Each row is measured
 against the build it was developed on, not always upstream `main`; the linked
-item gives the exact baseline.
+item gives the exact baseline. The code in this branch predates upstream's
+renaming of packages to cores (`bbad44fe`); #124 and #125 have since been rebased
+onto it, so those pull requests differ from the versions here.
 
 | Change | Upstream | Phase | Before | After |
 |---|---|---|---|---|
-| `ignition join --local-checkpoint [require\|prefer]`: peers read their own copy of the checkpoint | [#126](https://github.com/NVIDIA/spark-local-inference/issues/126) (issue) | Load weights on the peers | 252 s | 44.7–50.1 s (per peer) |
-| `--compile-headroom SIZE` / `[preparation] compile_headroom`: host memory left free for compilers (default stays 8 GiB) | [#122](https://github.com/NVIDIA/spark-local-inference/pull/122) | Compile model forwards | 905.7 s | 507.7 s (6 GiB) |
-| Link received payload objects into the package cache instead of copying | [#125](https://github.com/NVIDIA/spark-local-inference/pull/125) | Receive rank export payloads | 457.8 s | 280.6 s |
-| Hash Engram planes on parallel readers | [#157](https://github.com/NVIDIA/spark-local-inference/pull/157) | Assemble package payloads | 262.0 s | 169.1 s |
-| Hash package payload sources, and resolve shared payload cache objects, on parallel workers | [#124](https://github.com/NVIDIA/spark-local-inference/pull/124) | Verify and publish shared data | 863.7 s | 426.9 s |
-| The same, with the shared data already cached; Before is #124 without its cached-object verification | [#124](https://github.com/NVIDIA/spark-local-inference/pull/124) | Verify and publish shared data (shared data already cached) | 238.3 s | 149.6 s |
+| `ignition join --local-checkpoint [require\|prefer]`: peers read their own copy of the checkpoint | [#126](https://github.com/NVIDIA/hyperflare-inference/issues/126) (issue) | Load weights on the peers | 252 s | 44.7–50.1 s (per peer) |
+| `--compile-headroom SIZE` / `[preparation] compile_headroom`: host memory left free for compilers (default stays 8 GiB) | [#122](https://github.com/NVIDIA/hyperflare-inference/pull/122) | Compile model forwards | 905.7 s | 507.7 s (6 GiB) |
+| Link received payload objects into the cache instead of copying | [#125](https://github.com/NVIDIA/hyperflare-inference/pull/125) | Receive rank export payloads | 457.8 s | 280.6 s |
+| Hash Engram planes on parallel readers | [#157](https://github.com/NVIDIA/hyperflare-inference/pull/157) | Assemble package payloads | 262.0 s | 169.1 s |
+| Hash payload sources, and resolve shared payload cache objects, on parallel workers | [#124](https://github.com/NVIDIA/hyperflare-inference/pull/124) | Verify and publish shared data | 863.7 s | 426.9 s |
+| The same, with the shared data already cached; Before is #124 without its cached-object verification | [#124](https://github.com/NVIDIA/hyperflare-inference/pull/124) | Verify and publish shared data (shared data already cached) | 238.3 s | 149.6 s |
 
 The packages exported with #122, #124, #125 and #126 served normally with
 `flare run` (262k-token retrieval 16/16).
 
-### Not in this branch: a DeepSeek 4.1 prefill-scratch prototype
+#124 was measured again on top of upstream `main` at `d2b5c5f3`, which already
+verifies cache payloads in concurrent batches, before being rebased onto
+`bbad44fe`. One export per variant: "Export native packages"
+took 2132 s on that `main` and 1692 s with #124 with an empty cache, and 1340 s
+and 822 s with the previous export cached. See the pull request for the
+per-phase figures and their limits.
+
+### A DeepSeek 4.1 prefill-scratch prototype (branches `prod-kv`, `prefill-scratch-overlap`)
 
 A local prototype reduces the fixed prefill scratch of the DeepSeek 4.1 recipe,
 which leaves more memory to the KV cache. It was written with Claude Opus 5.5 and
-falls under the [contribution rules](AGENTS.md#cuda-kernel-and-model-optimization-authorship)
-on model optimizations, so it is not published, merged here or proposed upstream.
-Its measurement is reported in
-[#186](https://github.com/NVIDIA/spark-local-inference/issues/186). Against upstream `main` at `f571a550`,
-TP3 on three GB10 hosts, three starts of each package:
+falls under upstream's [contribution rules](AGENTS.md#cuda-kernel-and-model-optimization-authorship)
+on model optimizations, so it is not merged into this branch or proposed
+upstream. Its two commits are in the branch `prefill-scratch-overlap` (on upstream
+`main` at `f571a550`) and, on top of an earlier revision of this branch, in
+`prod-kv`. Its measurement is
+reported in [#186](https://github.com/NVIDIA/hyperflare-inference/issues/186).
+Against upstream `main` at `f571a550`, TP3 on three GB10 hosts, three starts of
+each package:
 
 | | Upstream `main` | With the prototype |
 |---|---|---|
